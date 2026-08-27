@@ -57,6 +57,42 @@ input,select{font:inherit;color:inherit;}
 }
 .iconbtn:hover{background:var(--sunk);color:var(--ink);}
 .iconbtn.on{color:var(--ok);}
+.txtbtn{
+  height:32px;padding:0 10px;border-radius:6px;font-size:12px;color:var(--ink3);
+  border:1px solid transparent;
+}
+.txtbtn:hover{background:var(--sunk);color:var(--ink);}
+.txtbtn.on{color:var(--accent);border-color:var(--accent);}
+
+/* ---- メモ（右側） ---- */
+.cols{display:flex;flex-direction:column;gap:0;}
+.memo{
+  order:-1;                                  /* 狭い画面では一覧の上に出す */
+  margin:16px 16px 0;padding:14px 16px 16px;
+  background:var(--card);border:1px solid var(--rule);border-radius:10px;
+  box-shadow:var(--shadow);
+}
+.cols.memo-off .memo{display:none;}
+.memohead{
+  display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px;
+  font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3);
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+.memohead .saved{color:var(--ok);letter-spacing:.06em;text-transform:none;}
+.memo textarea{
+  width:100%;min-height:150px;resize:vertical;display:block;
+  background:transparent;border:none;outline:none;padding:0;
+  color:var(--ink);font:inherit;font-size:15px;line-height:1.9;
+}
+.memo textarea::placeholder{color:var(--ink3);}
+@media (min-width:980px){
+  .app{max-width:1120px;}
+  .cols{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:0 24px;align-items:start;}
+  .memo{order:0;margin:18px 16px 0 0;}
+  .memo textarea{min-height:min(58vh,560px);}
+  /* ヘッダーの中身は左のカラムに揃える（入力欄が間延びしないように） */
+  .top .brand,.top .entry,.top .chips,.top .tabs{max-width:calc(100% - 364px);}
+}
 
 /* ---- input ---- */
 .entry{display:flex;gap:8px;align-items:center;padding-bottom:10px;}
@@ -296,6 +332,7 @@ h2.grp.now{color:var(--accent);}
       <h1>LIENS TASK</h1>
       <span class="week" id="week"></span>
       <span class="sp"></span>
+      <button class="txtbtn" id="memoBtn" title="メモ">メモ</button>
       <button class="iconbtn" id="syncBtn" title="同期" hidden>◍</button>
       <button class="iconbtn" id="setBtn" title="設定">⚙</button>
     </div>
@@ -310,7 +347,14 @@ h2.grp.now{color:var(--accent);}
       <button class="tab" data-tab="all">ぜんぶ</button>
     </div>
   </div>
-  <main id="main"></main>
+  <div class="cols" id="cols">
+    <main id="main"></main>
+    <aside class="memo" id="memoPane">
+      <div class="memohead"><span>メモ</span><span class="saved" id="memoSaved"></span></div>
+      <textarea id="memo" spellcheck="false"
+        placeholder="思いついたこと、電話で聞いたこと、下書き。&#10;タスクじゃないものはここに置いておく。"></textarea>
+    </aside>
+  </div>
 </div>
 
 <div class="veil" id="veil" hidden><div class="modal" id="modal"></div></div>
@@ -322,6 +366,7 @@ h2.grp.now{color:var(--accent);}
 /* ============ 定数・状態 ============ */
 const KEY_DATA = 'liens-task-data-v1';
 const KEY_SET  = 'liens-task-settings-v1';
+const KEY_MEMO = 'liens-task-memo-v1';
 const TOMB_DAYS = 30;
 
 // このリポジトリは公開なので、実名も顧客名もソースに書かない。
@@ -334,6 +379,7 @@ let S = {
   me:'me', names:{ me:'自分', mate:'相方' }, todayLimit:3, rotDays:21,
   starCriteria:'今月の目標に、直接効くか？',
   showWho:'all', showStarOnly:false, showProject:null, groupBy:'due', showDoneProj:false,
+  memoOpen:null,
   lastOpen:null, activeDays:{},
   token:'', repo:'ki325ko/quest-data', path:'tasks.json', name:''
 };
@@ -397,6 +443,23 @@ function saveData(push){
 }
 function saveSet(){
   try{ localStorage.setItem(KEY_SET, JSON.stringify(S)); }catch(e){}
+}
+
+/* ---- メモ（この端末だけ。同期しない） ---- */
+let memoTimer = null;
+function loadMemo(){ try{ return localStorage.getItem(KEY_MEMO) || ''; }catch(e){ return ''; } }
+function saveMemo(text){ try{ localStorage.setItem(KEY_MEMO, text); }catch(e){} }
+function applyMemoOpen(){
+  document.getElementById('cols').classList.toggle('memo-off', !S.memoOpen);
+  document.getElementById('memoBtn').classList.toggle('on', !!S.memoOpen);
+}
+// 取り込み時にメモを潰さない。中身が違うときは上書きせず下に足す
+function mergeMemo(incoming){
+  if(!incoming) return;
+  const cur = loadMemo();
+  if(!cur.trim()){ saveMemo(incoming); return; }
+  if(cur.trim() === incoming.trim()) return;
+  saveMemo(cur.replace(/\s+$/,'') + '\n\n---- 取り込み ' + TODAY() + ' ----\n' + incoming);
 }
 
 /* ============ 入力の解析 ============ */
@@ -1154,7 +1217,8 @@ function openSettings(){
 }
 
 function exportJSON(){
-  const blob = new Blob([JSON.stringify(D, null, 2)], {type:'application/json'});
+  const out = Object.assign({}, D, { memo: loadMemo() });
+  const blob = new Blob([JSON.stringify(out, null, 2)], {type:'application/json'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = 'liens-task-' + TODAY() + '.json';
@@ -1173,6 +1237,8 @@ function importJSON(){
         const incoming = JSON.parse(r.result);
         D = merge(D, incoming);
         migrate();
+        mergeMemo(incoming.memo);
+        document.getElementById('memo').value = loadMemo();
         saveData(); render(); toast('合流した');
       }catch(e){ toast('読み込めなかった'); }
     };
@@ -1358,6 +1424,29 @@ function bind(){
     });
   });
 
+  // メモ（打つたびに少し遅れて保存する）
+  const memo = document.getElementById('memo');
+  const memoSaved = document.getElementById('memoSaved');
+  memo.value = loadMemo();
+  const flushMemo = () => {
+    clearTimeout(memoTimer);
+    saveMemo(memo.value);
+    memoSaved.textContent = '保存した';
+    setTimeout(() => { if(memoSaved.textContent === '保存した') memoSaved.textContent = ''; }, 1400);
+  };
+  memo.addEventListener('input', () => {
+    memoSaved.textContent = '';
+    clearTimeout(memoTimer);
+    memoTimer = setTimeout(flushMemo, 600);
+  });
+  memo.addEventListener('blur', () => { clearTimeout(memoTimer); saveMemo(memo.value); });
+  window.addEventListener('pagehide', () => saveMemo(memo.value));
+
+  document.getElementById('memoBtn').addEventListener('click', () => {
+    S.memoOpen = !S.memoOpen; saveSet(); applyMemoOpen();
+    if(S.memoOpen) memo.focus();
+  });
+
   document.getElementById('setBtn').addEventListener('click', openSettings);
   document.getElementById('syncBtn').addEventListener('click', () => pull(true));
 
@@ -1366,7 +1455,8 @@ function bind(){
   });
   document.addEventListener('keydown', e => {
     if(e.key === 'Escape') closeModal();
-    if(e.key === '/' && document.activeElement !== entry){ e.preventDefault(); entry.focus(); }
+    const typing = /^(INPUT|TEXTAREA|SELECT)$/.test((document.activeElement||{}).tagName || '');
+    if(e.key === '/' && !typing){ e.preventDefault(); entry.focus(); }
   });
 
   // 案件カードの見出しはキーボードでも開ける
@@ -1445,8 +1535,14 @@ function bind(){
 /* ============ 起動 ============ */
 function boot(){
   load();
+  // 初回だけ、広い画面ならメモを開いた状態から始める
+  if(S.memoOpen === null || S.memoOpen === undefined){
+    S.memoOpen = window.matchMedia('(min-width:980px)').matches;
+    saveSet();
+  }
   pickupSharedToken();
   bind();
+  applyMemoOpen();
   render();
   ensureSyncTimer();
   // 復帰導線を出したあとに lastOpen を更新する（描画より後）

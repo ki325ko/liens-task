@@ -1,0 +1,378 @@
+/*
+ * LIENS TASK のロジックテスト
+ *
+ *   node test.mjs
+ *
+ * index.html から <script> を抜き出し、ブラウザAPIの薄いスタブを与えて実行する。
+ * ビルドも依存も増やさないための割り切り。画面の見た目はテストしない。
+ */
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const html = fs.readFileSync(path.join(here, 'index.html'), 'utf8');
+const src = html.match(/<script>([\s\S]*?)<\/script>/)[1];
+
+const stubs = `
+const localStorage = { _d:{}, getItem(k){return this._d[k]||null;}, setItem(k,v){this._d[k]=v;} };
+const _els = {};
+function _mk(id){ return { id, innerHTML:'', textContent:'', value:'', dataset:{}, hidden:false,
+  classList:{toggle(){},add(){},remove(){}}, style:{}, addEventListener(){}, focus(){}, onclick:null }; }
+const document = {
+  getElementById(id){ if(!_els[id]) _els[id] = _mk(id); return _els[id]; },
+  querySelectorAll: () => [], addEventListener(){}, createElement: () => ({click(){},onchange:null}),
+  hidden:false
+};
+const location = { hash:'', pathname:'/', search:'', origin:'http://x' };
+const history = { replaceState(){} };
+const navigator = { clipboard:{ writeText:async()=>{} } };
+const window = { matchMedia:()=>({matches:true}), addEventListener(){} };
+function fetch(){ throw new Error('no net'); }
+`;
+
+const body = src.replace(/^\s*'use strict';/m, '').replace(/\nboot\(\);\s*$/, '\n');
+
+const A = new Function(stubs + body + `
+  return { parseInput, parseDue, score, urgency, merge, buildToday, addTask, D, S,
+           TODAY, addDays, dayDiff, isRot, byScore, renderAll, renderProjects, NOPROJ, NEWPROJ,
+           projStats, findOrCreateProject, projById, projByName, migrate, whoName,
+           commitInline, openInline, closeInline, loadMemo, saveMemo, mergeMemo,
+           inline:()=>inlineAdd, el:(id)=>document.getElementById(id),
+           setD:(v)=>{D=v;}, getD:()=>D };
+`)();
+
+// 表示名は設定から入れる（ソースには実名を書かない）
+A.S.names = { me:'オレ', mate:'相方' };
+A.S.me = 'me';
+
+let pass = 0, fail = 0;
+const eq = (name, got, want) => {
+  if (JSON.stringify(got) === JSON.stringify(want)) { pass++; return; }
+  fail++;
+  console.log('✗ ' + name + '\n   got  ' + JSON.stringify(got) + '\n   want ' + JSON.stringify(want));
+};
+
+/* ============ 入力の解析 ============ */
+let p = A.parseInput('名刺を作り直す');
+eq('素の入力', [p.title, p.star, p.due, p.project, p.size], ['名刺を作り直す', false, null, null, null]);
+
+p = A.parseInput('見積りを送る #A社 @相方 !今日 30分 *');
+eq('フル記法', [p.title, p.project, p.who, p.due, p.size, p.star],
+   ['見積りを送る', 'A社', 'mate', A.addDays(0), 30, true]);
+
+p = A.parseInput('見積りを送る ＃A社 ＠相方 ！明日 1h ★');
+eq('全角記号', [p.project, p.who, p.due, p.star], ['A社', 'mate', A.addDays(1), true]);
+
+eq('設定した表示名で @ が引ける', A.parseInput('x @オレ').who, 'me');
+eq('@自分 も通る', A.parseInput('x @自分').who, 'me');
+
+eq('+N日', A.parseInput('資料 !+3').due, A.addDays(3));
+eq('M/D', A.parseInput('印刷 !8/30').due, new Date().getFullYear() + '-08-30');
+eq('1時間 → 60分', A.parseInput('打合せ 1時間').size, 60);
+
+p = A.parseInput('電話する !ほげ');
+eq('解釈できない締切は本文に残る', [p.title, p.due], ['電話する !ほげ', null]);
+
+p = A.parseInput('メール @たろう');
+eq('知らない担当は本文に残る', [p.title, p.who], ['メール @たろう', 'me']);
+
+eq('中身のない入力は title 空', A.parseInput('!今日').title, '');
+
+{
+  const nm = '日月火水木金土'[new Date().getDay()];
+  eq('今日の曜日を指定 → 今日', A.parseDue(nm), A.addDays(0));
+  eq('曜日+「曜日」表記', A.parseDue(nm + '曜日'), A.addDays(0));
+}
+
+/* ============ スコア ============ */
+{
+  const mk = o => Object.assign({ star:false, due:null, size:null,
+    touchedAt:new Date().toISOString(), status:'active' }, o);
+  eq('期限なし・★なし', A.score(mk({})), 0);
+  eq('★のみ', A.score(mk({star:true})), 50);
+  eq('今日締切', A.score(mk({due:A.addDays(0)})), 50);
+  eq('期限切れ', A.score(mk({due:A.addDays(-2)})), 60);
+  eq('★＋期限切れ', A.score(mk({star:true, due:A.addDays(-2)})), 110);
+  eq('重いタスクは減点', A.score(mk({star:true, size:120})), 40);
+  const old = new Date(Date.now() - 20*86400000).toISOString();
+  eq('停滞ボーナス', A.score(mk({touchedAt:old})), 10);
+  eq('★＋期限切れ > ★のみ',
+     A.score(mk({star:true, due:A.addDays(-1)})) > A.score(mk({star:true})), true);
+}
+
+/* ============ 今日をつくる ============ */
+const NOW = () => new Date().toISOString();
+const task = (id, o) => Object.assign({ id, title:id, who:'me', projectId:null, due:null,
+  star:false, size:null, status:'active', todayOn:null,
+  createdAt:NOW(), updatedAt:NOW(), touchedAt:NOW(), doneAt:null }, o);
+
+{
+  // ★あり・期限なしは、放っておくと永久に上がってこない。1枠はそこから取る
+  A.S.todayLimit = 3;
+  A.setD({ tasks:[
+    task('urgent1', {due:A.addDays(0)}),
+    task('urgent2', {due:A.addDays(0)}),
+    task('urgent3', {due:A.addDays(0)}),
+    task('growth',  {star:true})
+  ], projects:[], deleted:{} });
+  A.buildToday();
+  const picked = A.getD().tasks.filter(x => x.todayOn === A.TODAY()).map(x => x.id);
+  eq('3枠のうち1枠は「★あり・締切が遠い」から取る', picked.includes('growth'), true);
+  eq('積んだのは上限どおり3件', picked.length, 3);
+}
+
+{
+  A.setD({ tasks:[
+    task('already1', {todayOn:A.TODAY()}),
+    task('already2', {todayOn:A.TODAY()}),
+    task('overdue',  {due:A.addDays(-3)}),
+    task('growth',   {star:true})
+  ], projects:[], deleted:{} });
+  A.buildToday();
+  const added = A.getD().tasks.filter(x => x.todayOn === A.TODAY()).map(x => x.id);
+  eq('残り1枠は最高スコア（期限切れ60 > ★50）', added.includes('overdue'), true);
+  eq('上限を超えて積まない', added.length, 3);
+}
+
+/* ============ 案件（親）とタスク（子） ============ */
+function seed(){
+  A.setD({ tasks:[], projects:[], deleted:{} });
+  A.S.showWho = 'all'; A.S.showStarOnly = false; A.S.showProject = null;
+  A.S.groupBy = 'due'; A.S.showDoneProj = false; A.S.me = 'me'; A.S.todayLimit = 3;
+  A.closeInline();
+}
+const count = h => h.match(/<span>(\d+) 件<\/span>/)[1];
+
+{
+  seed();
+  A.addTask('提案書を作る #A社 *');
+  A.addTask('印刷する #A社 !明日');
+  A.addTask('サイト修正 #B社');
+  A.addTask('銀行に行く');
+
+  const d = A.getD();
+  eq('#で案件が自動でできる', d.projects.map(x => x.name).sort(), ['A社','B社']);
+  eq('同じ#は同じ案件にまとまる',
+     d.tasks.filter(t => t.projectId === A.projByName('A社').id).length, 2);
+  eq('#なしのタスクは案件に紐づかない', d.tasks.find(t => t.title === '銀行に行く').projectId, null);
+  eq('案件には色がつく', /^hsl\(/.test(A.projByName('A社').color), true);
+
+  const s = A.projStats(A.projByName('A社'));
+  eq('案件の集計', [s.total, s.done, s.open, s.star], [2, 0, 2, 1]);
+  // ★=50 は「明日」=35 より強い
+  eq('次の一手は最高スコアのタスク', s.next.title, '提案書を作る');
+}
+
+{
+  seed();
+  A.addTask('提案書 #A社 *');
+  A.addTask('印刷 #A社 !明日');
+  let h = A.renderProjects();
+  eq('案件タブに案件名が出る', h.includes('A社'), true);
+  eq('次の一手が出る', h.includes('提案書'), true);
+  eq('進捗が 0 / 2', h.includes('0 / 2'), true);
+  eq('閉じているうちは子タスクを出さない', h.includes('data-act="done"'), false);
+
+  const t = A.getD().tasks.find(x => x.title === '提案書');
+  t.status = 'done'; t.doneAt = NOW();
+  h = A.renderProjects();
+  eq('完了ぶんが進捗に乗る', h.includes('1 / 2'), true);
+  eq('次の一手が繰り上がる', h.includes('印刷'), true);
+}
+
+{
+  seed();
+  const p2 = A.findOrCreateProject('止まってる案件');
+  let h = A.renderProjects();
+  eq('タスクゼロの案件は「次の一手がない」と出る', h.includes('次の一手がない'), true);
+  eq('止まっている件数を数える', h.includes('止まっている 1件'), true);
+
+  p2.status = 'hold';
+  h = A.renderProjects();
+  eq('保留は状態チップが出る', h.includes('保留'), true);
+  eq('保留は「次の一手がない」を出さない', h.includes('次の一手がない'), false);
+  eq('保留は止まっている数に入れない', h.includes('止まっている'), false);
+
+  p2.status = 'done';
+  eq('完了案件は既定で隠れる', A.renderProjects().includes('止まってる案件'), false);
+  eq('完了があると「完了も見る」が出る', A.renderProjects().includes('data-f="pdone"'), true);
+  A.S.showDoneProj = true;
+  eq('「完了も見る」で出てくる', A.renderProjects().includes('止まってる案件'), true);
+  A.S.showDoneProj = false;
+}
+
+{
+  seed();
+  A.addTask('a #A社'); A.addTask('b #A社'); A.addTask('c #B社'); A.addTask('d');
+  const pid = A.projByName('A社').id;
+
+  let h = A.renderAll();
+  eq('ぜんぶ: 既定は締切でまとめる', /期限なし \(4\)/.test(h), true);
+  eq('ぜんぶ: 案件のチップが出る', h.includes('data-f="proj:'+pid+'"'), true);
+  eq('ぜんぶ: 未分類のチップが出る', h.includes('data-f="proj:'+A.NOPROJ+'"'), true);
+
+  A.S.groupBy = 'project';
+  h = A.renderAll();
+  eq('案件が見出しになる', /A社 \(2\)/.test(h) && /B社 \(1\)/.test(h) && /未分類 \(1\)/.test(h), true);
+  eq('束ねているときは行のタグを出さない', h.includes('class="tag"'), false);
+  eq('未分類は最後', h.indexOf('未分類 (1)') > h.indexOf('B社 (1)'), true);
+
+  A.S.groupBy = 'due'; A.S.showProject = pid;
+  eq('案件で絞り込める', count(A.renderAll()), '2');
+  A.S.showProject = A.NOPROJ;
+  eq('未分類で絞り込める', count(A.renderAll()), '1');
+
+  A.S.showProject = 'p_なくなったやつ';
+  const h2 = A.renderAll();
+  eq('消えた案件の絞り込みは自動で解除', A.S.showProject, null);
+  eq('解除後は全件', count(h2), '4');
+  A.S.groupBy = 'due';
+}
+
+/* ============ その場で案件・タスクを作る ============ */
+{
+  seed();
+  let h = A.renderProjects();
+  eq('案件を作るボタンが出ている', h.includes('data-pnew'), true);
+  eq('最初は入力を出さない', h.includes('data-inl='), false);
+
+  A.openInline(A.NEWPROJ);
+  eq('押すと案件名の入力が出る', A.renderProjects().includes('data-inl="'+A.NEWPROJ+'"'), true);
+
+  A.el('inl').value = 'C社サイト';
+  A.el('inl').dataset.inl = A.NEWPROJ;
+  A.commitInline();
+  eq('案件ができる', A.getD().projects.map(x => x.name), ['C社サイト']);
+  const pid = A.projByName('C社サイト').id;
+  eq('作った案件の入力に切り替わる（続けてタスクを打てる）', A.inline(), pid);
+  eq('作った案件は開いた状態になる', A.renderProjects().includes('data-inl="'+pid+'"'), true);
+
+  A.el('inl').value = '見積りを送る !明日 30分';
+  A.el('inl').dataset.inl = pid;
+  A.commitInline();
+  const t = A.getD().tasks[0];
+  eq('タスクがその案件の子になる', t.projectId, pid);
+  eq('その場の入力でも記法が効く', [t.due, t.size], [A.addDays(1), 30]);
+  eq('入れたあとも入力は開いたまま', A.inline(), pid);
+
+  A.el('inl').value = '';
+  A.commitInline();
+  eq('空で確定すると入力が閉じる', A.inline(), null);
+
+  A.openInline(pid);
+  A.el('inl').value = 'べつの仕事 #D社';
+  A.el('inl').dataset.inl = pid;
+  A.commitInline();
+  eq('明示した#が優先される', A.projById(A.getD().tasks[0].projectId).name, 'D社');
+  A.closeInline();
+}
+
+/* ============ 旧形式からの移行 ============ */
+{
+  seed();
+  A.setD({ tasks:[
+    { id:'t1', title:'旧タスク', who:'kido', project:'A社', due:null, star:false, size:null,
+      status:'active', todayOn:null, createdAt:NOW(), updatedAt:NOW(), touchedAt:NOW(), doneAt:null },
+    { id:'t2', title:'相方のタスク', who:'saba', project:null, due:null, star:false, size:null,
+      status:'active', todayOn:null, createdAt:NOW(), updatedAt:NOW(), touchedAt:NOW(), doneAt:null }
+  ], projects:[], deleted:{} });
+  A.S.me = 'kido';                 // 旧バージョンの設定が残っている状態
+  A.migrate();
+  const d = A.getD();
+  eq('旧形式から案件レコードができる', d.projects.map(x => x.name), ['A社']);
+  eq('タスクは projectId を持つ', d.tasks[0].projectId, d.projects[0].id);
+  eq('古い project キーは消える', 'project' in d.tasks[0], false);
+  eq('自分だった担当は me になる', d.tasks[0].who, 'me');
+  eq('もう1人だった担当は mate になる', d.tasks[1].who, 'mate');
+  eq('設定の自分も移る', A.S.me, 'me');
+  A.S.me = 'me';
+}
+
+/* ============ マージ（2人で同時に触っても消えない） ============ */
+{
+  const T = (id, ts, extra) => Object.assign({ id, title:id, updatedAt:ts }, extra||{});
+  const box = (tasks, projects, deleted) => ({ tasks, projects:projects||[], deleted:deleted||{} });
+
+  eq('別々の追加は両方残る',
+     A.merge(box([T('a','2026-08-01T00:00:00Z')]), box([T('b','2026-08-01T00:00:00Z')]))
+      .tasks.map(t => t.id).sort(), ['a','b']);
+
+  eq('同じものは新しい方が勝つ',
+     A.merge(box([T('a','2026-08-02T00:00:00Z',{title:'新'})]),
+             box([T('a','2026-08-01T00:00:00Z',{title:'旧'})])).tasks[0].title, '新');
+
+  eq('相手が新しければ相手が勝つ',
+     A.merge(box([T('a','2026-08-01T00:00:00Z',{title:'旧'})]),
+             box([T('a','2026-08-03T00:00:00Z',{title:'新'})])).tasks[0].title, '新');
+
+  const recent = new Date(Date.now()-86400000).toISOString();
+  eq('削除は古い編集に勝つ（消える）',
+     A.merge(box([T('a','2026-08-01T00:00:00Z')]), box([], [], {a:recent})).tasks.length, 0);
+
+  const future = new Date(Date.now()+1000).toISOString();
+  eq('削除のあとの編集は復活する',
+     A.merge(box([T('a',future)]), box([], [], {a:recent})).tasks.map(t => t.id), ['a']);
+
+  const oldTomb = new Date(Date.now()-40*86400000).toISOString();
+  eq('30日より古い墓標は捨てる',
+     Object.keys(A.merge(box([], [], {z:oldTomb}), box([])).deleted), []);
+
+  eq('相手が空でもこちらの追加は消えない',
+     A.merge(box([T('a','2026-08-01T00:00:00Z')]), box([])).tasks.map(t => t.id), ['a']);
+
+  const P = (id, ts, name) => ({ id, name, color:'hsl(1 1% 1%)', status:'active', updatedAt:ts });
+  eq('案件も新しい方が勝つ',
+     A.merge(box([], [P('p1','2026-08-02T00:00:00Z','新名')]),
+             box([], [P('p1','2026-08-01T00:00:00Z','旧名')])).projects[0].name, '新名');
+
+  eq('別々の案件は両方残る',
+     A.merge(box([], [P('p1','2026-08-01T00:00:00Z','A')]),
+             box([], [P('p2','2026-08-01T00:00:00Z','B')]))
+      .projects.map(x => x.name).sort(), ['A','B']);
+
+  const r = A.merge(
+    box([T('t1','2026-08-01T00:00:00Z',{projectId:'p1'})], [P('p1','2026-08-01T00:00:00Z','X')]),
+    box([], [], { p1: recent }));
+  eq('案件を消しても子タスクは道連れにしない', r.tasks.length, 1);
+  eq('親を失ったタスクは未分類になる', r.tasks[0].projectId, null);
+
+  eq('projects が無い相手とも合流できる',
+     A.merge({ tasks:[], deleted:{} }, { tasks:[], deleted:{} }).projects, []);
+}
+
+/* ============ 腐敗判定 ============ */
+{
+  const old = new Date(Date.now() - 30*86400000).toISOString();
+  eq('30日放置は薄くなる', A.isRot({status:'active', todayOn:null, touchedAt:old}), true);
+  eq('今日に積んであれば薄くならない', A.isRot({status:'active', todayOn:A.TODAY(), touchedAt:old}), false);
+  eq('完了済みは対象外', A.isRot({status:'done', todayOn:null, touchedAt:old}), false);
+  eq('最近さわったものは対象外', A.isRot({status:'active', todayOn:null, touchedAt:NOW()}), false);
+}
+
+/* ============ メモ ============ */
+{
+  A.saveMemo('電話メモ：折り返し 15時');
+  eq('メモは保存して読み戻せる', A.loadMemo(), '電話メモ：折り返し 15時');
+
+  A.saveMemo('');
+  A.mergeMemo('取り込んだ中身');
+  eq('空なら取り込んだものがそのまま入る', A.loadMemo(), '取り込んだ中身');
+
+  A.saveMemo('もとの中身');
+  A.mergeMemo('もとの中身');
+  eq('同じ中身なら二重に足さない', A.loadMemo(), 'もとの中身');
+
+  A.saveMemo('もとの中身');
+  A.mergeMemo('別の中身');
+  const m = A.loadMemo();
+  eq('中身が違うときは上書きせず下に足す',
+     m.startsWith('もとの中身') && m.includes('別の中身') && m.includes('---- 取り込み'), true);
+
+  A.saveMemo('消したくない');
+  A.mergeMemo('');
+  eq('空を取り込んでも消えない', A.loadMemo(), '消したくない');
+}
+
+console.log('\n' + pass + ' passed, ' + fail + ' failed');
+process.exit(fail ? 1 : 0);
