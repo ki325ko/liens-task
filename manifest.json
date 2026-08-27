@@ -1,0 +1,14 @@
+{
+  "name": "LIENS TASK",
+  "short_name": "TASK",
+  "description": "代表とさばの2人で使うタスク管理",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#F5F6F1",
+  "theme_color": "#1B2559",
+  "lang": "ja",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
