@@ -38,6 +38,11 @@ const A = new Function(stubs + body + `
            TODAY, addDays, dayDiff, isRot, byScore, renderAll, renderProjects, NOPROJ, NEWPROJ,
            projStats, findOrCreateProject, projById, projByName, migrate, whoName,
            commitInline, openInline, closeInline, loadMemo, saveMemo, mergeMemo,
+           weekKeyOf, weekDays, shiftWeek, shiftMonth, doneOn, doneBetween,
+           getLog, logId, getNote, sheetRows, renderWeekSheet, renderMonthSheet, sheetNav,
+           parseYMD, fmt,
+           setView:(w,m,mode)=>{ if(w)viewWeek=w; if(m)viewMonth=m; if(mode)sheetMode=mode; },
+           view:()=>({week:viewWeek, month:viewMonth, mode:sheetMode}),
            inline:()=>inlineAdd, el:(id)=>document.getElementById(id),
            setD:(v)=>{D=v;}, getD:()=>D };
 `)();
@@ -144,7 +149,7 @@ const task = (id, o) => Object.assign({ id, title:id, who:'me', projectId:null, 
 
 /* ============ 案件（親）とタスク（子） ============ */
 function seed(){
-  A.setD({ tasks:[], projects:[], deleted:{} });
+  A.setD({ tasks:[], projects:[], logs:[], notes:[], deleted:{} });
   A.S.showWho = 'all'; A.S.showStarOnly = false; A.S.showProject = null;
   A.S.groupBy = 'due'; A.S.showDoneProj = false; A.S.me = 'me'; A.S.todayLimit = 3;
   A.closeInline();
@@ -355,6 +360,125 @@ const count = h => h.match(/<span>(\d+) 件<\/span>/)[1];
   eq('今日に積んであれば薄くならない', A.isRot({status:'active', todayOn:A.TODAY(), touchedAt:old}), false);
   eq('完了済みは対象外', A.isRot({status:'done', todayOn:null, touchedAt:old}), false);
   eq('最近さわったものは対象外', A.isRot({status:'active', todayOn:null, touchedAt:NOW()}), false);
+}
+
+/* ============ 週報シート ============ */
+{
+  // 週の区切り（月曜はじまり）
+  const wk = A.weekKeyOf(A.TODAY());
+  eq('週キーは月曜', A.parseYMD(wk).getDay(), 1);
+  const days = A.weekDays(wk);
+  eq('週は7日', days.length, 7);
+  eq('週の初日は週キーそのもの', days[0], wk);
+  eq('週内のどの日から引いても同じ週になる',
+     days.every(d => A.weekKeyOf(d) === wk), true);
+  const d0 = A.parseYMD(wk);
+  eq('次の週は7日後', A.shiftWeek(wk, 1),
+     A.fmt(new Date(d0.getFullYear(), d0.getMonth(), d0.getDate() + 7)));
+  eq('前の週に戻れる', A.shiftWeek(A.shiftWeek(wk, 1), -1), wk);
+  eq('月をまたいで進める', A.shiftMonth('2026-12', 1), '2027-01');
+  eq('月をまたいで戻れる', A.shiftMonth('2026-01', -1), '2025-12');
+}
+
+{
+  seed();
+  const wk = A.weekKeyOf(A.TODAY());
+  const days = A.weekDays(wk);
+  A.setView(wk, A.TODAY().slice(0,7), 'week');
+
+  A.addTask('提案書を出す #A社');
+  A.addTask('印刷する #A社');
+  A.addTask('経費を入力 #B社');
+  const pA = A.projByName('A社').id;
+
+  // 月曜と水曜に1件ずつ完了させる
+  const d = A.getD();
+  const t1 = d.tasks.find(t => t.title === '提案書を出す');
+  const t2 = d.tasks.find(t => t.title === '印刷する');
+  t1.status = 'done'; t1.doneAt = days[0] + 'T04:00:00.000Z';
+  t2.status = 'done'; t2.doneAt = days[2] + 'T04:00:00.000Z';
+
+  eq('その日その案件で完了したものを拾う', A.doneOn(days[0], pA).map(t => t.title), ['提案書を出す']);
+  eq('違う日は拾わない', A.doneOn(days[1], pA).length, 0);
+  eq('違う案件は拾わない', A.doneOn(days[0], A.projByName('B社').id).length, 0);
+  eq('週の合計を数える', A.doneBetween(days[0], days[6], pA).length, 2);
+
+  let h = A.renderWeekSheet();
+  eq('案件が行になる', h.includes('A社') && h.includes('B社'), true);
+  eq('完了したタスクがセルに自動で入る', h.includes('提案書を出す') && h.includes('印刷する'), true);
+  eq('行に週の完了数が出る', h.includes('完了 2'), true);
+  eq('7日ぶんの列が出る', (h.match(/data-cell="day"/g) || []).length, 7 * 2);
+
+  // 「今週やること」を書く
+  const l = A.getLog(wk, pA, true);
+  l.plan = '見積りまで出す';
+  eq('今週やることが表示される', A.renderWeekSheet().includes('見積りまで出す'), true);
+
+  // 手で「やったこと」を足す
+  l.manual.push({ id:'m_x', d: days[1], t:'電話で確認した' });
+  h = A.renderWeekSheet();
+  eq('手で足した記録も同じセルに並ぶ', h.includes('電話で確認した'), true);
+
+  // メモ
+  l.note = '先方の担当が変わった';
+  eq('メモが表示される', A.renderWeekSheet().includes('先方の担当が変わった'), true);
+}
+
+{
+  // 案件に紐づかないタスクの行
+  seed();
+  const wk = A.weekKeyOf(A.TODAY());
+  A.setView(wk, A.TODAY().slice(0,7), 'week');
+  A.addTask('銀行に行く');
+  eq('案件なしの行が出る', A.renderWeekSheet().includes('案件なし'), true);
+}
+
+{
+  // 記録のIDは週と案件から決まる → 2人が同時に書いてもマージできる
+  eq('記録のIDは決め打ち', A.logId('2026-08-24', 'p_1'), 'l_2026-08-24_p_1');
+  eq('案件なしのIDも決まる', A.logId('2026-08-24', null), 'l_2026-08-24_none');
+
+  const L = (id, ts, plan) => ({ id, week:'2026-08-24', projectId:'p_1', plan,
+    note:'', manual:[], updatedAt:ts });
+  const r = A.merge(
+    { tasks:[], projects:[], logs:[L('l_a','2026-08-25T00:00:00Z','新')], notes:[], deleted:{} },
+    { tasks:[], projects:[], logs:[L('l_a','2026-08-24T00:00:00Z','旧')], notes:[], deleted:{} });
+  eq('週の記録も新しい方が勝つ', r.logs[0].plan, '新');
+
+  const N = (id, ts, text) => ({ id, kind:'week', key:'2026-08-24', text, updatedAt:ts });
+  const r2 = A.merge(
+    { tasks:[], projects:[], logs:[], notes:[N('n_1','2026-08-24T00:00:00Z','古い')], deleted:{} },
+    { tasks:[], projects:[], logs:[], notes:[N('n_1','2026-08-26T00:00:00Z','新しい')], deleted:{} });
+  eq('ふりかえりも新しい方が勝つ', r2.notes[0].text, '新しい');
+
+  const r3 = A.merge({ tasks:[], deleted:{} }, { tasks:[], deleted:{} });
+  eq('logs / notes が無い相手とも合流できる', [r3.logs, r3.notes], [[], []]);
+}
+
+{
+  // 月のまとめ
+  seed();
+  const wk = A.weekKeyOf(A.TODAY());
+  const days = A.weekDays(wk);
+  A.setView(wk, days[0].slice(0,7), 'month');
+
+  A.addTask('提案書 #A社');
+  const t = A.getD().tasks[0];
+  t.status = 'done'; t.doneAt = days[0] + 'T04:00:00.000Z';
+  A.getLog(wk, A.projByName('A社').id, true).manual.push({ id:'m_1', d:days[1], t:'手で足した記録' });
+
+  const h = A.renderMonthSheet();
+  eq('月表に案件が並ぶ', h.includes('A社'), true);
+  eq('この月にやったことに完了ぶんが出る', h.includes('提案書'), true);
+  eq('この月にやったことに手書きぶんも出る', h.includes('手で足した記録'), true);
+  eq('月のまとめ欄がある', h.includes('data-note="month:'), true);
+
+  A.sheetNav('mode-week');
+  eq('週表示に戻せる', A.view().mode, 'week');
+  A.sheetNav('next');
+  eq('次の週へ進める', A.view().week, A.shiftWeek(wk, 1));
+  A.sheetNav('now');
+  eq('今週に戻れる', A.view().week, A.weekKeyOf(A.TODAY()));
 }
 
 /* ============ メモ ============ */

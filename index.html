@@ -305,6 +305,91 @@ h2.grp.now{color:var(--accent);}
 .item .t{cursor:pointer;}
 .item .t:hover{color:var(--accent);}
 
+/* ---- 週報シート ---- */
+.navbar{display:flex;align-items:center;gap:8px;padding:16px 2px 12px;}
+.navbar .nb{
+  border:1px solid var(--rule);border-radius:7px;padding:6px 11px;
+  font-size:13px;color:var(--ink2);background:var(--card);
+}
+.navbar .nb:hover{border-color:var(--ink3);color:var(--ink);}
+.navbar .nb.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700;}
+.navbar .range{
+  font-size:14px;font-weight:700;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+.navbar .sp{flex:1;}
+.sheetwrap{
+  overflow-x:auto;border:1px solid var(--rule);border-radius:10px;background:var(--card);
+  box-shadow:var(--shadow);
+}
+table.sheet{border-collapse:separate;border-spacing:0;width:100%;font-size:13px;}
+table.sheet th,table.sheet td{
+  border-right:1px solid var(--rule);border-bottom:1px solid var(--rule);
+  padding:8px 10px;vertical-align:top;text-align:left;
+}
+table.sheet thead th{
+  background:var(--sunk);
+  font-size:10.5px;letter-spacing:.08em;color:var(--ink3);font-weight:600;white-space:nowrap;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+table.sheet thead th.today{color:var(--accent);}
+table.sheet tbody th.rowh{
+  position:sticky;left:0;z-index:1;background:var(--card);
+  min-width:130px;max-width:170px;font-weight:700;font-size:13.5px;line-height:1.4;
+}
+table.sheet thead th.rowh{position:sticky;left:0;z-index:3;background:var(--sunk);}
+table.sheet tr:last-child th,table.sheet tr:last-child td{border-bottom:none;}
+table.sheet th:last-child,table.sheet td:last-child{border-right:none;}
+.rowh .pdot{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;vertical-align:1px;}
+.rowh .cnt{
+  display:block;margin-top:3px;font-size:10.5px;font-weight:400;color:var(--ink3);
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+td.cell{cursor:pointer;min-width:132px;}
+td.cell:hover{background:var(--accent-soft);}
+td.cell.day{min-width:120px;}
+td.cell.wknd{background:var(--sunk);}
+td.cell.wknd:hover{background:var(--accent-soft);}
+td.cell.istoday{box-shadow:inset 2px 0 0 var(--accent);}
+.ent{line-height:1.5;margin-bottom:3px;word-break:break-word;}
+.ent.auto{color:var(--ink);}
+.ent.auto b{color:var(--ok);font-weight:400;margin-right:3px;}
+.ent.man{color:var(--ink2);}
+.ent.man b{color:var(--accent);font-weight:400;margin-right:3px;}
+.cellempty{color:var(--ink3);opacity:.5;}
+.plan{white-space:pre-wrap;line-height:1.55;}
+.sheetnote{
+  margin-top:16px;background:var(--card);border:1px solid var(--rule);border-radius:10px;
+  padding:16px 18px;box-shadow:var(--shadow);
+}
+.sheetnote h3{
+  margin:0 0 10px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3);
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+.sheetnote textarea{
+  width:100%;min-height:110px;resize:vertical;display:block;
+  background:transparent;border:none;outline:none;padding:0;
+  color:var(--ink);font:inherit;font-size:15px;line-height:1.85;
+}
+.sheetnote textarea::placeholder{color:var(--ink3);}
+.cellbox{
+  width:100%;min-height:70px;resize:vertical;background:var(--paper);
+  border:1px solid var(--accent);border-radius:5px;padding:6px 8px;
+  color:var(--ink);font:inherit;font-size:13px;line-height:1.55;outline:none;
+}
+.mlist{margin:0 0 14px;}
+.mrow{
+  display:flex;gap:9px;align-items:flex-start;padding:8px 0;
+  border-bottom:1px solid var(--rule);font-size:14px;line-height:1.55;
+}
+.mrow .mk{flex:none;font-size:12px;padding-top:2px;}
+.mrow .mk.ok{color:var(--ok);}
+.mrow .mk.hand{color:var(--accent);}
+.mrow .mt{flex:1;min-width:0;word-break:break-word;}
+.mrow .mx{flex:none;color:var(--ink3);font-size:13px;padding:0 4px;}
+.mrow .mx:hover{color:var(--accent);}
+.mnone{color:var(--ink3);font-size:13.5px;padding:8px 0 14px;}
+
 /* ---- tidy ---- */
 .tidy-t{font-size:17px;line-height:1.5;margin:0 0 6px;}
 .tidy-m{font-size:12px;color:var(--ink3);margin:0 0 20px;}
@@ -345,6 +430,7 @@ h2.grp.now{color:var(--accent);}
       <button class="tab on" data-tab="today">今日</button>
       <button class="tab" data-tab="proj">案件</button>
       <button class="tab" data-tab="all">ぜんぶ</button>
+      <button class="tab" data-tab="sheet">週報</button>
     </div>
   </div>
   <div class="cols" id="cols">
@@ -376,7 +462,9 @@ function whoName(k){ return (S.names && S.names[k]) || (k === 'me' ? '1人目' :
 // この端末の持ち主から見た「もう1人」
 function otherWho(){ return S.me === 'me' ? 'mate' : 'me'; }
 
-let D = { tasks:[], projects:[], deleted:{} };
+// logs = 週×案件の記録（今週やること・手で足した記録・メモ）
+// notes = 週の振り返り／月のまとめ
+let D = { tasks:[], projects:[], logs:[], notes:[], deleted:{} };
 let S = {
   me:'me', names:{ me:'自分', mate:'相方' }, todayLimit:3, rotDays:21,
   starCriteria:'今月の目標に、直接効くか？',
@@ -414,6 +502,8 @@ function load(){
   try{ const raw = localStorage.getItem(KEY_SET); if(raw) Object.assign(S, JSON.parse(raw)); }catch(e){}
   if(!Array.isArray(D.tasks)) D.tasks = [];
   if(!Array.isArray(D.projects)) D.projects = [];
+  if(!Array.isArray(D.logs)) D.logs = [];
+  if(!Array.isArray(D.notes)) D.notes = [];
   if(!D.deleted || typeof D.deleted !== 'object') D.deleted = {};
   migrate();
 }
@@ -986,6 +1076,322 @@ function openProjectModal(p){
   };
 }
 
+/* ============ 週報シート ============ */
+let sheetMode = 'week';      // week | month
+let viewWeek = null;         // その週の月曜の日付
+let viewMonth = null;        // 'YYYY-MM'
+let noteTimer = null;
+const WD_JA = ['月','火','水','木','金','土','日'];
+
+function weekKeyOf(ds){
+  const d = parseYMD(ds); d.setDate(d.getDate() - (d.getDay()+6)%7); return fmt(d);
+}
+function weekDays(wk){
+  const d = parseYMD(wk), out = [];
+  for(let i=0;i<7;i++) out.push(fmt(new Date(d.getFullYear(), d.getMonth(), d.getDate()+i)));
+  return out;
+}
+function shiftWeek(wk, n){
+  const d = parseYMD(wk);
+  return fmt(new Date(d.getFullYear(), d.getMonth(), d.getDate() + n*7));
+}
+function shiftMonth(mk, n){
+  const [y,m] = mk.split('-').map(Number);
+  const d = new Date(y, m-1+n, 1);
+  return d.getFullYear() + '-' + pad(d.getMonth()+1);
+}
+function md(ds){ const d = parseYMD(ds); return (d.getMonth()+1)+'/'+d.getDate(); }
+function wdOf(ds){ return WD_JA[(parseYMD(ds).getDay()+6)%7]; }
+
+function logId(week, pid){ return 'l_' + week + '_' + (pid || 'none'); }
+function getLog(week, pid, create){
+  const id = logId(week, pid);
+  let l = D.logs.find(x => x.id === id);
+  if(!l && create){
+    l = { id, week, projectId: pid || null, plan:'', note:'', manual:[],
+          createdAt: nowISO(), updatedAt: nowISO() };
+    D.logs.push(l);
+  }
+  if(l && !Array.isArray(l.manual)) l.manual = [];
+  return l;
+}
+function hasLog(week, pid){
+  const l = D.logs.find(x => x.id === logId(week, pid));
+  return !!(l && (l.plan || l.note || (l.manual||[]).length));
+}
+function noteId(kind, key){ return 'n_' + kind + '_' + key; }
+function getNote(kind, key, create){
+  const id = noteId(kind, key);
+  let n = D.notes.find(x => x.id === id);
+  if(!n && create){
+    n = { id, kind, key, text:'', createdAt: nowISO(), updatedAt: nowISO() };
+    D.notes.push(n);
+  }
+  return n;
+}
+
+// 完了したタスクは自動でセルに入る
+function doneOn(ds, pid){
+  return D.tasks.filter(t => t.status === 'done' && t.doneAt && t.doneAt.slice(0,10) === ds
+    && (t.projectId || null) === (pid || null) && visible(t));
+}
+function doneBetween(from, to, pid){
+  return D.tasks.filter(t => t.status === 'done' && t.doneAt
+    && t.doneAt.slice(0,10) >= from && t.doneAt.slice(0,10) <= to
+    && (t.projectId || null) === (pid || null) && visible(t))
+    .sort((a,b) => a.doneAt < b.doneAt ? -1 : 1);
+}
+function manualIn(weeks, pid, from, to){
+  const out = [];
+  for(const w of weeks){
+    const l = D.logs.find(x => x.id === logId(w, pid));
+    if(!l) continue;
+    for(const m of (l.manual||[])) if(m.d >= from && m.d <= to) out.push(m);
+  }
+  return out.sort((a,b) => a.d < b.d ? -1 : 1);
+}
+
+// シートに出す行。進行中の案件はいつも出し、終わった案件は動きがあった月だけ出す
+function sheetRows(from, to, weeks){
+  const live = D.projects.filter(p => p.status !== 'done');
+  const past = D.projects.filter(p => p.status === 'done'
+    && (doneBetween(from, to, p.id).length || weeks.some(w => hasLog(w, p.id))));
+  const rows = live.concat(past).map(p => ({ id:p.id, name:p.name, color:p.color }));
+
+  const looseOpen = D.tasks.some(t => !t.projectId && t.status === 'active' && visible(t));
+  const looseDone = doneBetween(from, to, null).length;
+  if(looseOpen || looseDone || weeks.some(w => hasLog(w, null)))
+    rows.push({ id:null, name:'案件なし', color:'var(--ink3)' });
+  return rows;
+}
+
+function renderSheet(){
+  if(!viewWeek) viewWeek = weekKeyOf(TODAY());
+  if(!viewMonth) viewMonth = TODAY().slice(0,7);
+  return sheetMode === 'week' ? renderWeekSheet() : renderMonthSheet();
+}
+
+function navHTML(label, atNow, nowLabel){
+  return '<div class="navbar">'
+    + '<button class="nb" data-sn="prev">◀</button>'
+    + '<span class="range">'+label+'</span>'
+    + '<button class="nb" data-sn="next">▶</button>'
+    + (atNow ? '' : '<button class="nb" data-sn="now">'+nowLabel+'</button>')
+    + '<span class="sp"></span>'
+    + '<button class="nb'+(sheetMode==='week'?' on':'')+'" data-sn="mode-week">週</button>'
+    + '<button class="nb'+(sheetMode==='month'?' on':'')+'" data-sn="mode-month">月</button>'
+    + '</div>';
+}
+
+function textCellHTML(pid, field, text){
+  return '<td class="cell" data-cell="'+field+'" data-pid="'+(pid||'')+'">'
+    + (text ? '<div class="plan">'+esc(text)+'</div>' : '<span class="cellempty">＋</span>')
+    + '</td>';
+}
+
+function dayCellHTML(pid, ds){
+  const auto = doneOn(ds, pid);
+  const l = D.logs.find(x => x.id === logId(viewWeek, pid));
+  const man = l ? (l.manual||[]).filter(m => m.d === ds) : [];
+  const wknd = [0,6].includes(parseYMD(ds).getDay());
+  const body = auto.map(t => '<div class="ent auto"><b>✓</b>'+esc(t.title)+'</div>').join('')
+    + man.map(m => '<div class="ent man"><b>・</b>'+esc(m.t)+'</div>').join('');
+  return '<td class="cell day'+(wknd?' wknd':'')+(ds===TODAY()?' istoday':'')+'"'
+    + ' data-cell="day" data-pid="'+(pid||'')+'" data-d="'+ds+'">'
+    + (body || '<span class="cellempty">＋</span>') + '</td>';
+}
+
+function renderWeekSheet(){
+  const days = weekDays(viewWeek);
+  const from = days[0], to = days[6];
+  const rows = sheetRows(from, to, [viewWeek]);
+  const thisWeek = weekKeyOf(TODAY());
+
+  let h = navHTML(md(from)+' 〜 '+md(to), viewWeek === thisWeek, '今週');
+
+  if(!rows.length){
+    h += '<div class="list plain"><div class="empty"><b>案件がまだない</b>'
+       + '案件タブで案件を作ると、ここに行として並ぶ</div></div>';
+  } else {
+    h += '<div class="sheetwrap"><table class="sheet"><thead><tr>'
+      + '<th class="rowh">案件</th>'
+      + '<th style="min-width:160px">今週やること</th>'
+      + days.map(ds => '<th'+(ds===TODAY()?' class="today"':'')+'>'+wdOf(ds)+' '+md(ds)+'</th>').join('')
+      + '<th style="min-width:160px">メモ</th>'
+      + '</tr></thead><tbody>';
+
+    for(const r of rows){
+      const l = D.logs.find(x => x.id === logId(viewWeek, r.id));
+      const n = doneBetween(from, to, r.id).length;
+      h += '<tr>'
+        + '<th class="rowh"><span class="pdot" style="background:'+r.color+'"></span>'+esc(r.name)
+        +   '<span class="cnt">完了 '+n+'</span></th>'
+        + textCellHTML(r.id, 'plan', l ? l.plan : '')
+        + days.map(ds => dayCellHTML(r.id, ds)).join('')
+        + textCellHTML(r.id, 'note', l ? l.note : '')
+        + '</tr>';
+    }
+    h += '</tbody></table></div>';
+  }
+
+  const rv = getNote('week', viewWeek);
+  h += '<div class="sheetnote"><h3>今週のふりかえり</h3>'
+    + '<textarea data-note="week:'+viewWeek+'" '
+    + 'placeholder="うまくいったこと／詰まったこと／来週に持ち越すこと">'
+    + esc(rv ? rv.text : '') + '</textarea>'
+    + '<div class="acts"><button class="primary" data-sn="next">来週の「やること」を書く →</button></div>'
+    + '</div>';
+  return h;
+}
+
+function renderMonthSheet(){
+  const [y,m] = viewMonth.split('-').map(Number);
+  const first = fmt(new Date(y, m-1, 1));
+  const last  = fmt(new Date(y, m, 0));
+  const weeks = [];
+  for(let w = weekKeyOf(first); w <= last; w = shiftWeek(w, 1)) weeks.push(w);
+  const rows = sheetRows(first, last, weeks);
+
+  let h = navHTML(y + '年 ' + m + '月', viewMonth === TODAY().slice(0,7), '今月');
+
+  if(rows.length){
+    h += '<div class="sheetwrap"><table class="sheet"><thead><tr>'
+      + '<th class="rowh">案件</th>'
+      + weeks.map(w => '<th>'+md(w)+'〜</th>').join('')
+      + '<th>合計</th></tr></thead><tbody>';
+    for(const r of rows){
+      const total = doneBetween(first, last, r.id).length;
+      h += '<tr><th class="rowh"><span class="pdot" style="background:'+r.color+'"></span>'
+        + esc(r.name) + '</th>'
+        + weeks.map(w => {
+            const d = weekDays(w);
+            const n = doneBetween(d[0], d[6], r.id).length;
+            const l = D.logs.find(x => x.id === logId(w, r.id));
+            return '<td class="cell" data-sn="goto:'+w+'">'
+              + (n ? '<div class="ent auto"><b>✓</b>'+n+'件</div>' : '<span class="cellempty">－</span>')
+              + (l && l.plan ? '<div class="ent man" style="opacity:.75">'+esc(l.plan.split('\n')[0])+'</div>' : '')
+              + '</td>';
+          }).join('')
+        + '<td class="mono" style="font-weight:700">'+total+'</td></tr>';
+    }
+    h += '</tbody></table></div>';
+  }
+
+  // この月にやったこと（自動＋手で足したぶん）
+  let body = '';
+  for(const r of rows){
+    const done = doneBetween(first, last, r.id);
+    const man = manualIn(weeks, r.id, first, last);
+    if(!done.length && !man.length) continue;
+    const items = done.map(t => ({ d:t.doneAt.slice(0,10), t:t.title, auto:true }))
+      .concat(man.map(x => ({ d:x.d, t:x.t, auto:false })))
+      .sort((a,b) => a.d < b.d ? -1 : 1);
+    body += '<div style="margin-bottom:18px">'
+      + '<div style="font-weight:700;margin-bottom:6px">'
+      +   '<span class="pdot" style="background:'+r.color+'"></span>'+esc(r.name)
+      +   '<span class="cnt" style="display:inline;margin-left:8px">'+items.length+'件</span></div>'
+      + items.map(x => '<div class="ent '+(x.auto?'auto':'man')+'">'
+          + '<b>'+(x.auto?'✓':'・')+'</b><span class="mono" style="color:var(--ink3);margin-right:6px">'
+          + md(x.d)+'</span>'+esc(x.t)+'</div>').join('')
+      + '</div>';
+  }
+  h += '<div class="sheetnote"><h3>この月にやったこと</h3>'
+    + (body || '<div class="mnone">まだ記録がない</div>') + '</div>';
+
+  const mn = getNote('month', viewMonth);
+  h += '<div class="sheetnote"><h3>'+m+'月のまとめ</h3>'
+    + '<textarea data-note="month:'+viewMonth+'" '
+    + 'placeholder="この月に前に進んだこと／効かなかったこと／来月変えること">'
+    + esc(mn ? mn.text : '') + '</textarea></div>';
+  return h;
+}
+
+/* セルの編集 */
+function editTextCell(td){
+  if(td.querySelector('textarea')) return;
+  const field = td.dataset.cell;
+  const pid = td.dataset.pid || null;
+  const l = getLog(viewWeek, pid, true);
+  const cur = l[field] || '';
+  td.innerHTML = '<textarea class="cellbox"></textarea>';
+  const ta = td.querySelector('textarea');
+  ta.value = cur; ta.focus();
+  ta.setSelectionRange(cur.length, cur.length);
+  let closed = false;
+  const save = () => {
+    if(closed) return; closed = true;
+    l[field] = ta.value.trim();
+    l.updatedAt = nowISO();
+    saveData(); render();
+  };
+  ta.addEventListener('blur', save);
+  ta.addEventListener('keydown', e => {
+    if(e.key === 'Escape'){ e.preventDefault(); closed = true; render(); }
+    else if(e.key === 'Enter' && (e.metaKey || e.ctrlKey)){ e.preventDefault(); ta.blur(); }
+  });
+}
+
+function openDayModal(pid, ds){
+  const l = getLog(viewWeek, pid, true);
+  const p = projById(pid);
+  const auto = doneOn(ds, pid);
+  const man = l.manual.filter(m => m.d === ds);
+  openModal((p ? p.name : '案件なし') + ' ／ ' + md(ds) + '(' + wdOf(ds) + ')',
+    '<div class="pad">'
+    + '<div class="mlist">'
+    +   auto.map(t => '<div class="mrow"><span class="mk ok">✓</span><span class="mt">'+esc(t.title)+'</span></div>').join('')
+    +   man.map(x => '<div class="mrow"><span class="mk hand">・</span><span class="mt">'+esc(x.t)+'</span>'
+        +   '<button class="mx" data-mdel="'+x.id+'" title="消す">×</button></div>').join('')
+    +   (auto.length + man.length ? '' : '<div class="mnone">まだ何も記録がない</div>')
+    + '</div>'
+    + '<div class="fld"><label>やったことを足す</label>'
+    +   '<input id="mAdd" placeholder="打合せに同席した／電話で確認した など" autocomplete="off"></div>'
+    + '<div class="btnrow"><button class="btn solid" data-madd>足す</button></div>'
+    + '<div class="note" style="margin-top:12px">✓ はタスクを完了したときに自動で入る。'
+    + 'ここで足すのは、タスクにしていなかったことの記録。</div>'
+    + '</div>');
+
+  const add = () => {
+    const el = document.getElementById('mAdd');
+    const v = el.value.trim(); if(!v) return;
+    l.manual.push({ id: uid('m'), d: ds, t: v });
+    l.updatedAt = nowISO(); markActive(); saveData();
+    render(); openDayModal(pid, ds);
+  };
+  document.getElementById('modal').onclick = e => {
+    if(e.target.closest('[data-madd]')){ add(); return; }
+    const del = e.target.closest('[data-mdel]');
+    if(del){
+      l.manual = l.manual.filter(x => x.id !== del.dataset.mdel);
+      l.updatedAt = nowISO(); saveData();
+      render(); openDayModal(pid, ds);
+    }
+  };
+  document.getElementById('mAdd').addEventListener('keydown', e => {
+    if(e.key === 'Enter'){ e.preventDefault(); add(); }
+  });
+}
+
+function sheetNav(cmd){
+  if(cmd === 'mode-week'){ sheetMode = 'week'; }
+  else if(cmd === 'mode-month'){ sheetMode = 'month'; }
+  else if(cmd === 'prev'){
+    if(sheetMode === 'week') viewWeek = shiftWeek(viewWeek, -1);
+    else viewMonth = shiftMonth(viewMonth, -1);
+  }
+  else if(cmd === 'next'){
+    if(sheetMode === 'week') viewWeek = shiftWeek(viewWeek, 1);
+    else viewMonth = shiftMonth(viewMonth, 1);
+  }
+  else if(cmd === 'now'){
+    viewWeek = weekKeyOf(TODAY()); viewMonth = TODAY().slice(0,7);
+  }
+  else if(cmd.startsWith('goto:')){
+    viewWeek = cmd.slice(5); sheetMode = 'week';
+  }
+  render();
+}
+
 function renderAll(){
   const today = TODAY();
   const base = D.tasks.filter(t => t.status === 'active' && visible(t));
@@ -1079,7 +1485,9 @@ function renderAll(){
 function render(){
   renderChips();
   document.getElementById('main').innerHTML =
-    tab === 'today' ? renderToday() : tab === 'proj' ? renderProjects() : renderAll();
+    tab === 'today' ? renderToday() :
+    tab === 'proj'  ? renderProjects() :
+    tab === 'sheet' ? renderSheet() : renderAll();
   // 今週動いた日数
   const ws = weekStart();
   const n = Object.keys(S.activeDays).filter(d => dayDiff(ws, d) >= 0 && dayDiff(ws, d) <= 6).length;
@@ -1108,6 +1516,13 @@ function renderChips(){
   document.getElementById('chips').innerHTML = CHIPS
     .map(c => '<button class="chip'+(c[1]==='*'?' star':'')+'" data-ins="'+esc(c[1])+'">'
       + esc(c[0]) + '</button>').join('');
+}
+
+// 入力中に自動同期で描き直すと、打っている途中の字が消える
+function isTyping(){
+  const a = document.activeElement;
+  return !!(a && /^(INPUT|TEXTAREA)$/.test(a.tagName)
+    && document.getElementById('main').contains(a));
 }
 
 function toast(msg){
@@ -1306,13 +1721,15 @@ function mergeList(localList, remoteList){
 function merge(local, remote){
   const tasks = mergeList(local.tasks, remote.tasks);
   const projects = mergeList(local.projects, remote.projects);
+  const logs = mergeList(local.logs, remote.logs);
+  const notes = mergeList(local.notes, remote.notes);
 
   const tomb = {};
   for(const src of [remote.deleted || {}, local.deleted || {}])
     for(const id in src) if(!tomb[id] || src[id] > tomb[id]) tomb[id] = src[id];
 
   // 墓標より後に編集されていれば復活、そうでなければ消す
-  for(const map of [tasks, projects])
+  for(const map of [tasks, projects, logs, notes])
     for(const id in tomb){
       const x = map.get(id);
       if(x && (x.updatedAt||'') <= tomb[id]) map.delete(id);
@@ -1326,7 +1743,10 @@ function merge(local, remote){
   for(const t of tasks.values())
     if(t.projectId && !projects.has(t.projectId)) t.projectId = null;
 
-  return { tasks:[...tasks.values()], projects:[...projects.values()], deleted:tomb };
+  return {
+    tasks:[...tasks.values()], projects:[...projects.values()],
+    logs:[...logs.values()], notes:[...notes.values()], deleted:tomb
+  };
 }
 
 async function pull(loud){
@@ -1342,7 +1762,7 @@ async function pull(loud){
     migrate();
     saveData(false);
     syncMsg = '読み込んだ（' + new Date().toLocaleTimeString('ja-JP') + '）';
-    render();
+    if(!isTyping()) render();
     if(loud) toast('読み込んだ');
     return true;
   }catch(e){
@@ -1471,6 +1891,24 @@ function bind(){
   });
 
   // 案件カードの見出しはキーボードでも開ける
+  // ふりかえり／まとめの記入（打つたびに少し遅れて保存する）
+  const commitNote = ta => {
+    const [kind, key] = ta.dataset.note.split(':');
+    const n = getNote(kind, key, true);
+    if(n.text === ta.value) return;
+    n.text = ta.value; n.updatedAt = nowISO();
+    saveData();                       // ここで render() はしない（カーソルが飛ぶため）
+  };
+  document.getElementById('main').addEventListener('input', e => {
+    const ta = e.target.closest('[data-note]'); if(!ta) return;
+    clearTimeout(noteTimer);
+    noteTimer = setTimeout(() => commitNote(ta), 600);
+  });
+  document.getElementById('main').addEventListener('blur', e => {
+    const ta = e.target.closest('[data-note]'); if(!ta) return;
+    clearTimeout(noteTimer); commitNote(ta);
+  }, true);
+
   document.getElementById('main').addEventListener('keydown', e => {
     if(e.target.id === 'inl'){
       if(e.key === 'Enter'){ e.preventDefault(); commitInline(); }
@@ -1485,6 +1923,16 @@ function bind(){
   document.getElementById('main').addEventListener('click', e => {
     if(e.target.closest('[data-pnew]')){ openInline(NEWPROJ); return; }
     if(e.target.closest('[data-inlgo]')){ commitInline(); return; }
+
+    // 週報シート
+    const sn = e.target.closest('[data-sn]');
+    if(sn){ sheetNav(sn.dataset.sn); return; }
+    const cell = e.target.closest('[data-cell]');
+    if(cell){
+      if(cell.dataset.cell === 'day') openDayModal(cell.dataset.pid || null, cell.dataset.d);
+      else editTextCell(cell);
+      return;
+    }
 
     // 案件カード
     const pa = e.target.closest('[data-pact]');
@@ -1564,7 +2012,10 @@ function boot(){
   let cur = TODAY();
   setInterval(() => { if(TODAY() !== cur){ cur = TODAY(); render(); } }, 60000);
   document.addEventListener('visibilitychange', () => {
-    if(!document.hidden){ render(); if(S.token && !syncing) pull(false); }
+    if(!document.hidden){
+      if(!isTyping()) render();
+      if(S.token && !syncing) pull(false);
+    }
   });
 }
 boot();
