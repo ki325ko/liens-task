@@ -13,6 +13,7 @@
   --ink:#1B2559; --ink2:#5A6480; --ink3:#98A0B2;
   --rule:#DFE2D9; --accent:#C8452F; --accent-soft:rgba(200,69,47,.10);
   --ok:#1E8FA8; --shadow:0 1px 2px rgba(27,37,89,.06),0 8px 22px -14px rgba(27,37,89,.3);
+  --todaybg:rgba(200,69,47,.055);
 }
 @media (prefers-color-scheme:dark){
   :root{
@@ -20,6 +21,7 @@
     --ink:#E8EBF0; --ink2:#A6AFC0; --ink3:#6F7889;
     --rule:#2B313B; --accent:#E4674F; --accent-soft:rgba(228,103,79,.14);
     --ok:#4FC3DD; --shadow:0 1px 2px rgba(0,0,0,.45),0 8px 22px -14px rgba(0,0,0,.7);
+    --todaybg:rgba(228,103,79,.10);
   }
 }
 *{box-sizing:border-box;}
@@ -340,7 +342,9 @@ table.sheet thead th{
   font-size:10.5px;letter-spacing:.08em;color:var(--ink3);font-weight:600;white-space:nowrap;
   font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
 }
-table.sheet thead th.today{color:var(--accent);}
+table.sheet thead th.today{
+  background:var(--accent);color:#fff;font-weight:700;letter-spacing:.06em;
+}
 table.sheet tbody th.rowh{
   position:sticky;left:0;z-index:1;background:var(--card);
   min-width:190px;max-width:230px;font-weight:700;font-size:15px;line-height:1.4;
@@ -363,9 +367,13 @@ table.sheet th:last-child,table.sheet td:last-child{border-right:none;}
 td.cell{cursor:pointer;min-width:132px;}
 td.cell:hover{background:var(--accent-soft);}
 td.cell.day{min-width:170px;height:96px;}
-td.cell.wknd{background:var(--sunk);}
-td.cell.wknd:hover{background:var(--accent-soft);}
-td.cell.istoday{box-shadow:inset 2px 0 0 var(--accent);}
+td.cell.istoday{background:var(--todaybg);}
+td.cell.istoday:hover{background:var(--accent-soft);}
+.rowh .closed{
+  display:inline-block;margin-left:7px;font-size:10px;font-weight:400;
+  border:1px solid var(--ink3);color:var(--ink3);border-radius:999px;padding:0 6px;
+  vertical-align:2px;
+}
 .ent{line-height:1.5;margin-bottom:3px;word-break:break-word;}
 .ent.auto{color:var(--ink);}
 .ent.auto b{color:var(--ok);font-weight:400;margin-right:3px;}
@@ -535,6 +543,10 @@ function migrate(){
   const remap = k => known(k) ? k : (k === legacyMe ? 'me' : 'mate');
   for(const t of D.tasks){
     if(!known(t.who)){ t.who = remap(t.who); changed = true; }
+  }
+  // 完了済みの案件に「終わった日」が無ければ補う（週報がその週までを出せるように）
+  for(const p of D.projects){
+    if(p.status === 'done' && !p.closedAt){ p.closedAt = p.updatedAt || nowISO(); changed = true; }
   }
   if(!known(S.me)){ S.me = 'me'; saveSet(); }
   if(S.showWho !== 'all' && !known(S.showWho)){ S.showWho = remap(S.showWho); saveSet(); }
@@ -1052,7 +1064,8 @@ function openProjectModal(p){
     + '<div class="fld"><label>案件名</label><input id="pName" value="'+esc(p.name)+'"></div>'
     + '<div class="fld"><label>状態</label><div class="seg">'
     +   ['active','hold','done'].map(k => '<button data-ps="'+k+'" class="'+(p.status===k?'on':'')+'">'+PSTATE[k]+'</button>').join('')
-    + '</div><div class="note">保留・完了にすると案件タブで下に沈む。中のタスクは消えない。</div></div>'
+    + '</div><div class="note">保留は案件タブで下に沈むだけ。<b>完了にすると、その週までは週報に残り、'
+    + '翌週から行が消える。</b>中のタスクは消えない。</div></div>'
     + '<div class="fld"><label>目標（任意）</label><input id="pGoal" value="'+esc(p.goal||'')+'">'
     +   '<div class="note">週報タブで案件名の下に出る。</div></div>'
     + '<div class="fld"><label>納期（任意）</label><input id="pDue" type="date" value="'+(p.due||'')+'"></div>'
@@ -1062,7 +1075,8 @@ function openProjectModal(p){
     +   '<button class="btn" data-pd="keep">案件だけ消す</button>'
     +   '<button class="btn danger" data-pd="all">タスクごと消す</button>'
     + '</div>'
-    + '<div class="note" style="margin-top:8px">「案件だけ消す」なら、中のタスクは未分類として残る。</div>'
+    + '<div class="note" style="margin-top:8px">「案件だけ消す」なら、中のタスクは未分類として残る。'
+    + '<b>どちらも過去の週報からも消える。</b>終わった案件は消さずに「完了」にするほうがよい。</div>'
     + '</div>');
 
   const m = document.getElementById('modal');
@@ -1078,7 +1092,14 @@ function openProjectModal(p){
   ['pName','pGoal','pDue','pNote'].forEach(id => document.getElementById(id).addEventListener('change', commit));
   m.onclick = e => {
     const ps = e.target.closest('[data-ps]');
-    if(ps){ commit(); p.status = ps.dataset.ps; p.updatedAt = nowISO(); saveData(); openProjectModal(p); render(); return; }
+    if(ps){
+      commit();
+      p.status = ps.dataset.ps;
+      // 完了にした日を残す。週報はこの日を含む週までを出す
+      p.closedAt = p.status === 'done' ? (p.closedAt || nowISO()) : null;
+      p.updatedAt = nowISO();
+      saveData(); openProjectModal(p); render(); return;
+    }
     const pd = e.target.closest('[data-pd]');
     if(pd){
       const withTasks = pd.dataset.pd === 'all';
@@ -1135,9 +1156,13 @@ function getLog(week, pid, create){
   if(l && !Array.isArray(l.manual)) l.manual = [];
   return l;
 }
-function hasLog(week, pid){
-  const l = D.logs.find(x => x.id === logId(week, pid));
-  return !!(l && (l.plan || l.note || (l.manual||[]).length));
+// その週に「その案件が存在していたか」。週報は週ごとのスナップショットとして見る
+function projLive(p, from, to){
+  const born = (p.createdAt || '').slice(0,10);
+  const closed = p.closedAt ? p.closedAt.slice(0,10) : null;
+  if(born && born > to) return false;        // その週にはまだ無かった
+  if(closed && closed < from) return false;  // その週にはもう終わっていた
+  return true;
 }
 // 完了したタスクは自動でセルに入る
 function doneOn(ds, pid){
@@ -1160,17 +1185,20 @@ function manualIn(weeks, pid, from, to){
   return out.sort((a,b) => a.d < b.d ? -1 : 1);
 }
 
-// シートに出す行。進行中の案件はいつも出し、終わった案件は動きがあった月だけ出す
-function sheetRows(from, to, weeks){
-  const live = D.projects.filter(p => p.status !== 'done');
-  const past = D.projects.filter(p => p.status === 'done'
-    && (doneBetween(from, to, p.id).length || weeks.some(w => hasLog(w, p.id))));
-  const rows = live.concat(past).map(p => ({ id:p.id, name:p.name, color:p.color }));
+// その期間に存在していた案件だけを行にする。
+// 週の途中で足した案件はその週から出る。終わらせた案件はその週までは残り、翌週から消える。
+function sheetRows(from, to){
+  const rows = D.projects
+    .filter(p => projLive(p, from, to))
+    .map(p => ({ id:p.id, name:p.name, color:p.color, closed: !!p.closedAt }));
 
   const looseOpen = D.tasks.some(t => !t.projectId && t.status === 'active' && visible(t));
   const looseDone = doneBetween(from, to, null).length;
-  if(looseOpen || looseDone || weeks.some(w => hasLog(w, null)))
-    rows.push({ id:null, name:'案件なし', color:'var(--ink3)' });
+  const spanned = [];
+  for(let w = weekKeyOf(from); w <= to; w = shiftWeek(w, 1)) spanned.push(w);
+  const looseMan = manualIn(spanned, null, from, to).length;
+  if(looseOpen || looseDone || looseMan)
+    rows.push({ id:null, name:'案件なし', color:'var(--ink3)', closed:false });
   return rows;
 }
 
@@ -1196,10 +1224,9 @@ function dayCellHTML(pid, ds){
   const auto = doneOn(ds, pid);
   const l = D.logs.find(x => x.id === logId(viewWeek, pid));
   const man = l ? (l.manual||[]).filter(m => m.d === ds) : [];
-  const wknd = [0,6].includes(parseYMD(ds).getDay());
   const body = auto.map(t => '<div class="ent auto"><b>✓</b>'+esc(t.title)+'</div>').join('')
     + man.map(m => '<div class="ent man"><b>・</b>'+esc(m.t)+'</div>').join('');
-  return '<td class="cell day'+(wknd?' wknd':'')+(ds===TODAY()?' istoday':'')+'"'
+  return '<td class="cell day'+(ds===TODAY()?' istoday':'')+'"'
     + ' data-cell="day" data-pid="'+(pid||'')+'" data-d="'+ds+'">'
     + (body || '<span class="cellempty">＋</span>') + '</td>';
 }
@@ -1207,6 +1234,7 @@ function dayCellHTML(pid, ds){
 function rowHeadHTML(r){
   const goal = r.id ? (projById(r.id) || {}).goal : null;
   return '<th class="rowh"><span class="pdot" style="background:'+r.color+'"></span>'+esc(r.name)
+    + (r.closed ? '<span class="closed">終了</span>' : '')
     + (r.id
         ? '<button class="goal'+(goal?'':' none')+'" data-cell="goal" data-pid="'+r.id+'">'
           + (goal ? esc(goal) : '＋ 目標') + '</button>'
@@ -1217,7 +1245,7 @@ function rowHeadHTML(r){
 function renderWeekSheet(){
   const days = weekDays(viewWeek);
   const from = days[0], to = days[6];
-  const rows = sheetRows(from, to, [viewWeek]);
+  const rows = sheetRows(from, to);
 
   let h = navHTML(md(from)+' 〜 '+md(to), viewWeek === weekKeyOf(TODAY()), '今週');
 
@@ -1228,7 +1256,9 @@ function renderWeekSheet(){
 
   h += '<div class="sheetwrap"><table class="sheet"><thead><tr>'
     + '<th class="rowh">案件</th>'
-    + days.map(ds => '<th'+(ds===TODAY()?' class="today"':'')+'>'+wdOf(ds)+' '+md(ds)+'</th>').join('')
+    + days.map(ds => ds === TODAY()
+        ? '<th class="today">今日 '+wdOf(ds)+' '+md(ds)+'</th>'
+        : '<th>'+wdOf(ds)+' '+md(ds)+'</th>').join('')
     + '</tr></thead><tbody>';
 
   for(const r of rows){
@@ -1245,23 +1275,30 @@ function renderMonthSheet(){
   const last  = fmt(new Date(y, m, 0));
   const weeks = [];
   for(let w = weekKeyOf(first); w <= last; w = shiftWeek(w, 1)) weeks.push(w);
-  const rows = sheetRows(first, last, weeks);
+  const rows = sheetRows(first, last);
+  const thisWeek = weekKeyOf(TODAY());
 
   let h = navHTML(y + '年 ' + m + '月', viewMonth === TODAY().slice(0,7), '今月');
 
   if(rows.length){
     h += '<div class="sheetwrap"><table class="sheet"><thead><tr>'
       + '<th class="rowh">案件</th>'
-      + weeks.map(w => '<th>'+md(w)+'〜</th>').join('')
+      + weeks.map(w => w === thisWeek
+          ? '<th class="today">今週 '+md(w)+'〜</th>'
+          : '<th>'+md(w)+'〜</th>').join('')
       + '<th>合計</th></tr></thead><tbody>';
     for(const r of rows){
       const total = doneBetween(first, last, r.id).length;
+      const p = projById(r.id);
       h += '<tr>' + rowHeadHTML(r)
         + weeks.map(w => {
             const d = weekDays(w);
+            const cls = 'cell' + (w === thisWeek ? ' istoday' : '');
+            // その週にまだ無かった／もう終わっていた案件は、その列を空にする
+            if(p && !projLive(p, d[0], d[6])) return '<td class="'+cls+'"></td>';
             const n = doneBetween(d[0], d[6], r.id).length;
             const man = manualIn([w], r.id, d[0], d[6]).length;
-            return '<td class="cell" data-sn="goto:'+w+'">'
+            return '<td class="'+cls+'" data-sn="goto:'+w+'">'
               + (n ? '<div class="ent auto"><b>✓</b>'+n+'</div>' : '')
               + (man ? '<div class="ent man"><b>・</b>'+man+'</div>' : '')
               + (n || man ? '' : '<span class="cellempty">－</span>')

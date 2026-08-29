@@ -416,6 +416,9 @@ const count = h => h.match(/<span>(\d+) 件<\/span>/)[1];
      h.includes('今週やること') || h.includes('>メモ<'), false);
   eq('完了カウントは出さない', h.includes('完了 '), false);
   eq('ふりかえり欄は無い', h.includes('data-note='), false);
+  eq('土日に色を付けない', h.includes('wknd'), false);
+  eq('今日の列にはっきり印が付く', h.includes('class="today">今日 '), true);
+  eq('今日のセルにも印が付く', (h.match(/istoday/g) || []).length, 2);
 
   // 案件の目標
   eq('目標が無いときは足すボタンが出る', h.includes('＋ 目標'), true);
@@ -436,6 +439,34 @@ const count = h => h.match(/<span>(\d+) 件<\/span>/)[1];
   A.setView(wk, A.TODAY().slice(0,7), 'week');
   A.addTask('銀行に行く');
   eq('案件なしの行が出る', A.renderWeekSheet().includes('案件なし'), true);
+}
+
+{
+  // 週報は「その週に存在していた案件」だけを出す
+  seed();
+  const wk = A.weekKeyOf(A.TODAY());
+  A.setView(wk, A.TODAY().slice(0,7), 'week');
+  A.addTask('着手 #新案件');
+  const p = A.projByName('新案件');
+
+  eq('週の途中で作った案件はその週から出る', A.renderWeekSheet().includes('新案件'), true);
+  A.setView(A.shiftWeek(wk, -1));
+  eq('作る前の週には出ない', A.renderWeekSheet().includes('新案件'), false);
+
+  A.setView(wk);
+  p.status = 'done'; p.closedAt = A.TODAY() + 'T09:00:00.000Z';
+  let h = A.renderWeekSheet();
+  eq('終わらせた週にはまだ残る', h.includes('新案件'), true);
+  eq('終わった案件には印が付く', h.includes('終了'), true);
+
+  A.setView(A.shiftWeek(wk, 1));
+  eq('翌週からは消える', A.renderWeekSheet().includes('新案件'), false);
+
+  A.setView(wk);
+  p.status = 'active'; p.closedAt = null;
+  A.setView(A.shiftWeek(wk, 1));
+  eq('完了を戻せば翌週にも出る', A.renderWeekSheet().includes('新案件'), true);
+  A.setView(wk);
 }
 
 {
