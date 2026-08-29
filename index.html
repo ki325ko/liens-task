@@ -372,7 +372,9 @@ const TOMB_DAYS = 30;
 // このリポジトリは公開なので、実名も顧客名もソースに書かない。
 // 表示名は各自が設定で入れる（端末ごとに保存され、同期もしない）。
 const WHOS = ['me', 'mate'];
-function whoName(k){ return (S.names && S.names[k]) || (k === 'me' ? '自分' : '相方'); }
+function whoName(k){ return (S.names && S.names[k]) || (k === 'me' ? '1人目' : '2人目'); }
+// この端末の持ち主から見た「もう1人」
+function otherWho(){ return S.me === 'me' ? 'mate' : 'me'; }
 
 let D = { tasks:[], projects:[], deleted:{} };
 let S = {
@@ -515,8 +517,8 @@ function parseInput(raw){
     if(w.startsWith('#') && w.length > 1){ t.project = w.slice(1); continue; }
     if(w.startsWith('@') && w.length > 1){
       const n = w.slice(1);
-      const hit = WHOS.find(k => k === n || whoName(k) === n
-        || (k === 'me' && /^(自分|me)$/.test(n)));
+      if(/^(自分|me)$/.test(n)){ t.who = S.me; continue; }
+      const hit = WHOS.find(k => k === n || whoName(k) === n);
       if(hit){ t.who = hit; continue; }
       rest.push(w); continue;
     }
@@ -1075,6 +1077,7 @@ function renderAll(){
 }
 
 function render(){
+  renderChips();
   document.getElementById('main').innerHTML =
     tab === 'today' ? renderToday() : tab === 'proj' ? renderProjects() : renderAll();
   // 今週動いた日数
@@ -1093,6 +1096,18 @@ function render(){
   sb.hidden = !S.token;
   sb.classList.toggle('on', !!S.token);
   sb.title = '今すぐ読み込む' + (S.name ? '｜'+S.name : '');
+}
+
+// 入力補助のチップ。相手の名前を使うので、設定が変わったら作り直す
+function renderChips(){
+  const other = '@' + whoName(otherWho());
+  const CHIPS = [
+    ['★','*'], ['今日','!今日'], ['明日','!明日'], ['今週末','!週末'],
+    ['15分','15分'], ['30分','30分'], ['1h','1h'], ['#','#'], [other, other]
+  ];
+  document.getElementById('chips').innerHTML = CHIPS
+    .map(c => '<button class="chip'+(c[1]==='*'?' star':'')+'" data-ins="'+esc(c[1])+'">'
+      + esc(c[0]) + '</button>').join('');
 }
 
 function toast(msg){
@@ -1141,11 +1156,14 @@ function openTidy(){
 function openSettings(){
   const html = '<div class="pad">'
     + '<div class="sect">2人の名前</div>'
-    + '<div class="fld"><label>自分の表示名</label><input id="sN1" value="'+esc(whoName('me'))+'"></div>'
-    + '<div class="fld"><label>相手の表示名</label><input id="sN2" value="'+esc(whoName('mate'))+'"></div>'
+    + '<div class="note" style="margin:-4px 0 14px">2人とも<b>同じ2つの名前を同じ順番で</b>入れる。'
+    + '入れ替わっていると、担当が逆に記録される。</div>'
+    + '<div class="fld"><label>1人目の名前</label><input id="sN1" value="'+esc(whoName('me'))+'"></div>'
+    + '<div class="fld"><label>2人目の名前</label><input id="sN2" value="'+esc(whoName('mate'))+'"></div>'
     + '<div class="fld"><label>この端末を使うのは</label><div class="seg">'
-    + WHOS.map(k => '<button data-me="'+k+'" class="'+(S.me===k?'on':'')+'">'+esc(whoName(k))+'</button>').join('')
-    + '</div><div class="note">@を書かずに追加したタスクの担当になる。名前は端末ごとの設定で、同期もしないし公開もされない。</div></div>'
+    + WHOS.map((k,i) => '<button data-me="'+k+'" class="'+(S.me===k?'on':'')+'">'
+        + (i+1) + '人目 ' + esc(whoName(k)) + '</button>').join('')
+    + '</div><div class="note">@を書かずに追加したタスクの担当になる。名前と端末の設定は同期しないし、公開もされない。</div></div>'
 
     + '<div class="sect">★の基準</div>'
     + '<div class="fld"><input id="sCrit" value="'+esc(S.starCriteria)+'">'
@@ -1182,7 +1200,7 @@ function openSettings(){
   const m = document.getElementById('modal');
   m.onclick = async e => {
     const me = e.target.closest('[data-me]');
-    if(me){ S.me = me.dataset.me; saveSet(); openSettings(); render(); return; }
+    if(me){ readFields(); S.me = me.dataset.me; saveSet(); openSettings(); render(); return; }
     const b = e.target.closest('[data-s]'); if(!b) return;
     const act = b.dataset.s;
     if(act === 'pull'){ readFields(); await pull(true); openSettings(); }
@@ -1401,13 +1419,6 @@ function bind(){
   addBtn.addEventListener('click', submit);
 
   // 入力補助チップ
-  const CHIPS = [
-    ['★','*'], ['今日','!今日'], ['明日','!明日'], ['今週末','!週末'],
-    ['15分','15分'], ['30分','30分'], ['1h','1h'], ['#','#'],
-    ['@'+whoName('mate'), '@'+whoName('mate')]
-  ];
-  document.getElementById('chips').innerHTML =
-    CHIPS.map(c => '<button class="chip'+(c[1]==='*'?' star':'')+'" data-ins="'+c[1]+'">'+c[0]+'</button>').join('');
   document.getElementById('chips').addEventListener('click', e => {
     const b = e.target.closest('[data-ins]'); if(!b) return;
     const v = entry.value.replace(/\s+$/,'');

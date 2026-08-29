@@ -67,6 +67,13 @@ eq('全角記号', [p.project, p.who, p.due, p.star], ['A社', 'mate', A.addDays
 eq('設定した表示名で @ が引ける', A.parseInput('x @オレ').who, 'me');
 eq('@自分 も通る', A.parseInput('x @自分').who, 'me');
 
+// 担当は「1人目/2人目」の固定スロット。端末が変わっても同じ人を指す
+A.S.me = 'mate';
+eq('相手の端末でも @1人目の名前 は1人目', A.parseInput('x @オレ').who, 'me');
+eq('相手の端末では @自分 が2人目になる', A.parseInput('x @自分').who, 'mate');
+eq('相手の端末では既定の担当も2人目', A.parseInput('x').who, 'mate');
+A.S.me = 'me';
+
 eq('+N日', A.parseInput('資料 !+3').due, A.addDays(3));
 eq('M/D', A.parseInput('印刷 !8/30').due, new Date().getFullYear() + '-08-30');
 eq('1時間 → 60分', A.parseInput('打合せ 1時間').size, 60);
