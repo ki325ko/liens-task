@@ -1659,7 +1659,7 @@ function openSettings(){
     + '<div class="note">Google Cloud で作る。承認済みのJavaScript生成元に '
     + '<b>' + esc(location.origin) + '</b> を登録しておくこと。'
     + '秘密の値ではないので、2人で同じものを使ってよい。</div></div>'
-    + '<div class="btnrow"><button class="btn" data-s="calauth">つながるか試す</button></div>'
+    + '<div class="btnrow"><button class="btn solid" data-s="calauth">カレンダーにつなぐ</button></div>'
     + '<div class="status'+(/つながらな|失敗/.test(calMsg)?' err':'')+'" id="calStatus">'+esc(calMsg||'')+'</div>'
     + '<div class="note" style="margin-top:10px">「今日」に入れたタスクを終日予定として書く。'
     + 'カレンダー上でその予定を時間帯にドラッグすると、開始時刻がアプリ側にも入る。</div>'
@@ -1672,6 +1672,8 @@ function openSettings(){
     + '<div class="note" style="margin-top:8px">消える前に書き出す。読み込みは今のデータに合流する（上書きしない）。</div>'
     + '</div>';
   openModal('設定', html);
+  // ボタンを押した瞬間にログイン画面を開けるよう、Googleの部品を先に読み込んでおく
+  loadGis().catch(() => {});
 
   const m = document.getElementById('modal');
   m.onclick = async e => {
@@ -1688,11 +1690,26 @@ function openSettings(){
     }
     else if(act === 'calauth'){
       readFields();
-      const st = document.getElementById('calStatus');
-      st.textContent = 'Googleにつないでいる…';
-      try { await gAuth(true); calMsg = 'つながった。「今日」タブの「カレンダーと合わせる」で書き出せる'; }
-      catch(err){ calMsg = 'つながらなかった: ' + err.message; }
-      openSettings();
+      // ここから requestAccessToken まで待ち処理をはさまない（はさむとポップアップが弾かれる）
+      if(!gClientReady()){
+        calMsg = 'Googleの部品を読み込んでいる。数秒待ってもう一度押す';
+        openSettings();
+        loadGis().then(() => {
+          calMsg = '準備できた。もう一度「カレンダーにつなぐ」を押す'; openSettings();
+        }).catch(err => {
+          calMsg = 'Googleに接続できなかった: ' + err.message; openSettings();
+        });
+        return;
+      }
+      gRequest('')
+        .then(() => { calMsg = 'つながった。「今日」タブの「カレンダーと合わせる」で書き出せる'; openSettings(); })
+        .catch(err => {
+          calMsg = err.message === 'popup_failed_to_open'
+            ? 'ポップアップがブラウザに止められた。アドレスバーの右に出るブロック表示から、このサイトのポップアップを許可してからもう一度'
+            : 'つながらなかった: ' + err.message;
+          openSettings();
+        });
+      return;
     }
     else if(act === 'export') exportJSON();
     else if(act === 'import') importJSON();
@@ -1713,7 +1730,7 @@ function openSettings(){
     const ws = +document.getElementById('sWkStart').value;
     if(ws !== S.weekStart){ S.weekStart = ws; viewWeek = null; }   // 週の区切りを引き直す
     const newCal = document.getElementById('sCal').value.trim();
-    if(newCal !== S.gcalId){ S.gcalId = newCal; gToken = null; gExp = 0; }
+    if(newCal !== S.gcalId){ S.gcalId = newCal; gToken = null; gExp = 0; gClient = null; }
     const hadToken = S.token;
     S.token = document.getElementById('sTok').value.trim();
     S.name = document.getElementById('sName').value.trim();
@@ -1915,30 +1932,56 @@ function loadGis(){
   return gLoading;
 }
 
-function gAuth(interactive){
-  if(!calOn()) return Promise.reject(new Error('クライアントIDが入っていない'));
-  if(gToken && Date.now() < gExp - 60000) return Promise.resolve(gToken);
-  return loadGis().then(() => new Promise((res, rej) => {
-    const client = google.accounts.oauth2.initTokenClient({
-      client_id: S.gcalId.trim(),
-      scope: CAL_SCOPE,
-      callback: r => {
-        if(r.error){ rej(new Error(r.error)); return; }
-        gToken = r.access_token;
-        gExp = Date.now() + ((r.expires_in || 3600) * 1000);
-        res(gToken);
-      },
-      error_callback: e => rej(new Error((e && e.type) || 'ログインが完了しなかった'))
-    });
-    // まずは黙って取り直す。だめなら画面を出す
-    client.requestAccessToken({ prompt: interactive ? '' : 'none' });
-  }));
+/*
+ * ログイン画面はポップアップで開く。ブラウザは「クリックした瞬間」に開いたものしか
+ * 許さないので、待ち処理をはさんでから開こうとすると popup_failed_to_open になる。
+ * そのため Google の部品は先に読み込んでおき、ボタンからは即座に呼べるようにしておく。
+ */
+let gClient = null, gPending = null;
+
+function gClientReady(){
+  if(gClient) return gClient;
+  if(!calOn()) return null;
+  if(!(window.google && window.google.accounts && google.accounts.oauth2)) return null;
+  gClient = google.accounts.oauth2.initTokenClient({
+    client_id: S.gcalId.trim(),
+    scope: CAL_SCOPE,
+    callback: r => {
+      const p = gPending; gPending = null;
+      if(!p) return;
+      if(r.error){ p.rej(new Error(r.error)); return; }
+      gToken = r.access_token;
+      gExp = Date.now() + ((r.expires_in || 3600) * 1000);
+      p.res(gToken);
+    },
+    error_callback: e => {
+      const p = gPending; gPending = null;
+      if(p) p.rej(new Error((e && e.type) || 'ログインが完了しなかった'));
+    }
+  });
+  return gClient;
+}
+
+// prompt:'' はポップアップを開く（クリックから直接呼ぶこと）
+// prompt:'none' は裏で静かに取り直すだけなので、いつ呼んでもよい
+function gRequest(prompt){
+  return new Promise((res, rej) => {
+    const c = gClientReady();
+    if(!c){ rej(new Error('not_ready')); return; }
+    if(gPending){ rej(new Error('ログインの途中')); return; }
+    gPending = { res, rej };
+    try { c.requestAccessToken({ prompt: prompt }); }
+    catch(e){ gPending = null; rej(e); }
+  });
 }
 
 async function gApi(path, opt){
-  let tok;
-  try { tok = await gAuth(false); }
-  catch(e){ tok = await gAuth(true); }
+  let tok = (gToken && Date.now() < gExp - 60000) ? gToken : null;
+  if(!tok){
+    // ここではポップアップを開けない（クリック直後ではないため）。静かな取り直しだけ試す
+    try { tok = await gRequest('none'); }
+    catch(e){ throw new Error('設定の「カレンダーにつなぐ」を押して許可してから、もう一度'); }
+  }
   const init = Object.assign({}, opt);
   init.headers = Object.assign(
     { 'Authorization':'Bearer ' + tok, 'Content-Type':'application/json' },
@@ -2266,6 +2309,7 @@ function boot(){
   applyMemoOpen();
   render();
   ensureSyncTimer();
+  if(calOn()) loadGis().catch(() => {});
   // 復帰導線を出したあとに lastOpen を更新する（描画より後）
   setTimeout(() => {
     if(!S.lastOpen || dayDiff(S.lastOpen, TODAY()) < 3){ S.lastOpen = TODAY(); saveSet(); }
