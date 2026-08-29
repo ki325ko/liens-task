@@ -39,7 +39,7 @@ const A = new Function(stubs + body + `
            projStats, findOrCreateProject, projById, projByName, migrate, whoName,
            commitInline, openInline, closeInline, loadMemo, saveMemo, mergeMemo,
            weekKeyOf, weekDays, shiftWeek, shiftMonth, doneOn, doneBetween,
-           getLog, logId, getNote, sheetRows, renderWeekSheet, renderMonthSheet, sheetNav,
+           getLog, logId, sheetRows, renderWeekSheet, renderMonthSheet, sheetNav,
            parseYMD, fmt,
            setView:(w,m,mode)=>{ if(w)viewWeek=w; if(m)viewMonth=m; if(mode)sheetMode=mode; },
            view:()=>({week:viewWeek, month:viewMonth, mode:sheetMode}),
@@ -364,9 +364,14 @@ const count = h => h.match(/<span>(\d+) 件<\/span>/)[1];
 
 /* ============ 週報シート ============ */
 {
-  // 週の区切り（月曜はじまり）
+  // 週の区切り（既定は水曜はじまり）
   const wk = A.weekKeyOf(A.TODAY());
-  eq('週キーは月曜', A.parseYMD(wk).getDay(), 1);
+  eq('既定の週はじまりは水曜', A.parseYMD(wk).getDay(), 3);
+  A.S.weekStart = 1;
+  eq('設定を変えれば月曜はじまりになる', A.parseYMD(A.weekKeyOf(A.TODAY())).getDay(), 1);
+  A.S.weekStart = 0;
+  eq('日曜はじまりにもできる', A.parseYMD(A.weekKeyOf(A.TODAY())).getDay(), 0);
+  A.S.weekStart = 3;
   const days = A.weekDays(wk);
   eq('週は7日', days.length, 7);
   eq('週の初日は週キーそのもの', days[0], wk);
@@ -406,22 +411,22 @@ const count = h => h.match(/<span>(\d+) 件<\/span>/)[1];
   let h = A.renderWeekSheet();
   eq('案件が行になる', h.includes('A社') && h.includes('B社'), true);
   eq('完了したタスクがセルに自動で入る', h.includes('提案書を出す') && h.includes('印刷する'), true);
-  eq('行に週の完了数が出る', h.includes('完了 2'), true);
   eq('7日ぶんの列が出る', (h.match(/data-cell="day"/g) || []).length, 7 * 2);
+  eq('列は日付だけ（やること・メモの欄は無い）',
+     h.includes('今週やること') || h.includes('>メモ<'), false);
+  eq('完了カウントは出さない', h.includes('完了 '), false);
+  eq('ふりかえり欄は無い', h.includes('data-note='), false);
 
-  // 「今週やること」を書く
-  const l = A.getLog(wk, pA, true);
-  l.plan = '見積りまで出す';
-  eq('今週やることが表示される', A.renderWeekSheet().includes('見積りまで出す'), true);
+  // 案件の目標
+  eq('目標が無いときは足すボタンが出る', h.includes('＋ 目標'), true);
+  A.projByName('A社').goal = '9月までに月5万';
+  h = A.renderWeekSheet();
+  eq('目標が案件の下に出る', h.includes('9月までに月5万'), true);
+  eq('目標はその場で編集できる', h.includes('data-cell="goal"'), true);
 
   // 手で「やったこと」を足す
-  l.manual.push({ id:'m_x', d: days[1], t:'電話で確認した' });
-  h = A.renderWeekSheet();
-  eq('手で足した記録も同じセルに並ぶ', h.includes('電話で確認した'), true);
-
-  // メモ
-  l.note = '先方の担当が変わった';
-  eq('メモが表示される', A.renderWeekSheet().includes('先方の担当が変わった'), true);
+  A.getLog(wk, pA, true).manual.push({ id:'m_x', d: days[1], t:'電話で確認した' });
+  eq('手で足した記録も同じセルに並ぶ', A.renderWeekSheet().includes('電話で確認した'), true);
 }
 
 {
@@ -471,7 +476,8 @@ const count = h => h.match(/<span>(\d+) 件<\/span>/)[1];
   eq('月表に案件が並ぶ', h.includes('A社'), true);
   eq('この月にやったことに完了ぶんが出る', h.includes('提案書'), true);
   eq('この月にやったことに手書きぶんも出る', h.includes('手で足した記録'), true);
-  eq('月のまとめ欄がある', h.includes('data-note="month:'), true);
+  eq('月にも自由記述の欄は無い', h.includes('data-note='), false);
+  eq('月表の週セルからその週へ飛べる', h.includes('data-sn="goto:'), true);
 
   A.sheetNav('mode-week');
   eq('週表示に戻せる', A.view().mode, 'week');

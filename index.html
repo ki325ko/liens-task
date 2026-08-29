@@ -305,6 +305,14 @@ h2.grp.now{color:var(--accent);}
 .item .t{cursor:pointer;}
 .item .t:hover{color:var(--accent);}
 
+/* ---- 週報シートは別ページ扱い。幅いっぱいを使う ---- */
+.app.wide{max-width:none;}
+.app.wide .entry,.app.wide .chips,.app.wide .memo{display:none;}
+.app.wide .cols{display:block;}
+@media (min-width:980px){
+  .app.wide .top .brand,.app.wide .top .tabs{max-width:none;}
+}
+
 /* ---- 週報シート ---- */
 .navbar{display:flex;align-items:center;gap:8px;padding:16px 2px 12px;}
 .navbar .nb{
@@ -322,10 +330,10 @@ h2.grp.now{color:var(--accent);}
   overflow-x:auto;border:1px solid var(--rule);border-radius:10px;background:var(--card);
   box-shadow:var(--shadow);
 }
-table.sheet{border-collapse:separate;border-spacing:0;width:100%;font-size:13px;}
+table.sheet{border-collapse:separate;border-spacing:0;width:100%;font-size:14px;}
 table.sheet th,table.sheet td{
   border-right:1px solid var(--rule);border-bottom:1px solid var(--rule);
-  padding:8px 10px;vertical-align:top;text-align:left;
+  padding:11px 13px;vertical-align:top;text-align:left;
 }
 table.sheet thead th{
   background:var(--sunk);
@@ -335,7 +343,7 @@ table.sheet thead th{
 table.sheet thead th.today{color:var(--accent);}
 table.sheet tbody th.rowh{
   position:sticky;left:0;z-index:1;background:var(--card);
-  min-width:130px;max-width:170px;font-weight:700;font-size:13.5px;line-height:1.4;
+  min-width:190px;max-width:230px;font-weight:700;font-size:15px;line-height:1.4;
 }
 table.sheet thead th.rowh{position:sticky;left:0;z-index:3;background:var(--sunk);}
 table.sheet tr:last-child th,table.sheet tr:last-child td{border-bottom:none;}
@@ -345,9 +353,16 @@ table.sheet th:last-child,table.sheet td:last-child{border-right:none;}
   display:block;margin-top:3px;font-size:10.5px;font-weight:400;color:var(--ink3);
   font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
 }
+.goal{
+  display:block;width:100%;text-align:left;margin-top:6px;
+  font-size:12.5px;font-weight:400;line-height:1.55;color:var(--ink2);
+  border-left:2px solid var(--accent);padding:1px 0 1px 8px;white-space:pre-wrap;
+}
+.goal:hover{color:var(--ink);}
+.goal.none{color:var(--ink3);border-left-color:var(--rule);opacity:.7;}
 td.cell{cursor:pointer;min-width:132px;}
 td.cell:hover{background:var(--accent-soft);}
-td.cell.day{min-width:120px;}
+td.cell.day{min-width:170px;height:96px;}
 td.cell.wknd{background:var(--sunk);}
 td.cell.wknd:hover{background:var(--accent-soft);}
 td.cell.istoday{box-shadow:inset 2px 0 0 var(--accent);}
@@ -411,7 +426,7 @@ td.cell.istoday{box-shadow:inset 2px 0 0 var(--accent);}
 </head>
 <body>
 
-<div class="app">
+<div class="app" id="app">
   <div class="top">
     <div class="brand">
       <h1>LIENS TASK</h1>
@@ -469,7 +484,7 @@ let S = {
   me:'me', names:{ me:'自分', mate:'相方' }, todayLimit:3, rotDays:21,
   starCriteria:'今月の目標に、直接効くか？',
   showWho:'all', showStarOnly:false, showProject:null, groupBy:'due', showDoneProj:false,
-  memoOpen:null,
+  memoOpen:null, weekStart:3,
   lastOpen:null, activeDays:{},
   token:'', repo:'ki325ko/quest-data', path:'tasks.json', name:''
 };
@@ -490,10 +505,6 @@ function addDays(n){ const d = new Date(); d.setDate(d.getDate()+n); return fmt(
 function daysSinceISO(iso){
   if(!iso) return 0;
   return Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
-}
-function weekStart(){ // 月曜はじまり
-  const d = new Date(); const w = (d.getDay()+6)%7;
-  d.setDate(d.getDate()-w); return fmt(d);
 }
 
 /* ============ 保存・読み込み ============ */
@@ -640,7 +651,7 @@ function findOrCreateProject(name){
   let p = projByName(n);
   if(p) return p;
   p = { id: uid('p'), name:n, color: hashColor(n), status:'active', due:null,
-        note:'', createdAt: nowISO(), updatedAt: nowISO() };
+        goal:'', note:'', createdAt: nowISO(), updatedAt: nowISO() };
   D.projects.push(p);
   return p;
 }
@@ -1042,6 +1053,8 @@ function openProjectModal(p){
     + '<div class="fld"><label>状態</label><div class="seg">'
     +   ['active','hold','done'].map(k => '<button data-ps="'+k+'" class="'+(p.status===k?'on':'')+'">'+PSTATE[k]+'</button>').join('')
     + '</div><div class="note">保留・完了にすると案件タブで下に沈む。中のタスクは消えない。</div></div>'
+    + '<div class="fld"><label>目標（任意）</label><input id="pGoal" value="'+esc(p.goal||'')+'">'
+    +   '<div class="note">週報タブで案件名の下に出る。</div></div>'
     + '<div class="fld"><label>納期（任意）</label><input id="pDue" type="date" value="'+(p.due||'')+'"></div>'
     + '<div class="fld"><label>メモ（任意）</label><input id="pNote" value="'+esc(p.note||'')+'"></div>'
     + '<div class="sect">危険な操作</div>'
@@ -1056,12 +1069,13 @@ function openProjectModal(p){
   const commit = () => {
     const nm = document.getElementById('pName').value.trim();
     if(nm) p.name = nm;
+    p.goal = document.getElementById('pGoal').value.trim();
     p.due = document.getElementById('pDue').value || null;
     p.note = document.getElementById('pNote').value.trim();
     p.updatedAt = nowISO();
     saveData(); render();
   };
-  ['pName','pDue','pNote'].forEach(id => document.getElementById(id).addEventListener('change', commit));
+  ['pName','pGoal','pDue','pNote'].forEach(id => document.getElementById(id).addEventListener('change', commit));
   m.onclick = e => {
     const ps = e.target.closest('[data-ps]');
     if(ps){ commit(); p.status = ps.dataset.ps; p.updatedAt = nowISO(); saveData(); openProjectModal(p); render(); return; }
@@ -1080,11 +1094,17 @@ function openProjectModal(p){
 let sheetMode = 'week';      // week | month
 let viewWeek = null;         // その週の月曜の日付
 let viewMonth = null;        // 'YYYY-MM'
-let noteTimer = null;
-const WD_JA = ['月','火','水','木','金','土','日'];
+const WD_JA = ['日','月','火','水','木','金','土'];
 
+// 週の始まりは設定で決める（既定は水曜）
+function weekStartDow(){
+  const v = (S.weekStart === undefined || S.weekStart === null) ? 3 : +S.weekStart;
+  return (v % 7 + 7) % 7;
+}
 function weekKeyOf(ds){
-  const d = parseYMD(ds); d.setDate(d.getDate() - (d.getDay()+6)%7); return fmt(d);
+  const d = parseYMD(ds);
+  d.setDate(d.getDate() - ((d.getDay() - weekStartDow() + 7) % 7));
+  return fmt(d);
 }
 function weekDays(wk){
   const d = parseYMD(wk), out = [];
@@ -1101,7 +1121,7 @@ function shiftMonth(mk, n){
   return d.getFullYear() + '-' + pad(d.getMonth()+1);
 }
 function md(ds){ const d = parseYMD(ds); return (d.getMonth()+1)+'/'+d.getDate(); }
-function wdOf(ds){ return WD_JA[(parseYMD(ds).getDay()+6)%7]; }
+function wdOf(ds){ return WD_JA[parseYMD(ds).getDay()]; }
 
 function logId(week, pid){ return 'l_' + week + '_' + (pid || 'none'); }
 function getLog(week, pid, create){
@@ -1119,17 +1139,6 @@ function hasLog(week, pid){
   const l = D.logs.find(x => x.id === logId(week, pid));
   return !!(l && (l.plan || l.note || (l.manual||[]).length));
 }
-function noteId(kind, key){ return 'n_' + kind + '_' + key; }
-function getNote(kind, key, create){
-  const id = noteId(kind, key);
-  let n = D.notes.find(x => x.id === id);
-  if(!n && create){
-    n = { id, kind, key, text:'', createdAt: nowISO(), updatedAt: nowISO() };
-    D.notes.push(n);
-  }
-  return n;
-}
-
 // 完了したタスクは自動でセルに入る
 function doneOn(ds, pid){
   return D.tasks.filter(t => t.status === 'done' && t.doneAt && t.doneAt.slice(0,10) === ds
@@ -1183,12 +1192,6 @@ function navHTML(label, atNow, nowLabel){
     + '</div>';
 }
 
-function textCellHTML(pid, field, text){
-  return '<td class="cell" data-cell="'+field+'" data-pid="'+(pid||'')+'">'
-    + (text ? '<div class="plan">'+esc(text)+'</div>' : '<span class="cellempty">＋</span>')
-    + '</td>';
-}
-
 function dayCellHTML(pid, ds){
   const auto = doneOn(ds, pid);
   const l = D.logs.find(x => x.id === logId(viewWeek, pid));
@@ -1201,47 +1204,39 @@ function dayCellHTML(pid, ds){
     + (body || '<span class="cellempty">＋</span>') + '</td>';
 }
 
+function rowHeadHTML(r){
+  const goal = r.id ? (projById(r.id) || {}).goal : null;
+  return '<th class="rowh"><span class="pdot" style="background:'+r.color+'"></span>'+esc(r.name)
+    + (r.id
+        ? '<button class="goal'+(goal?'':' none')+'" data-cell="goal" data-pid="'+r.id+'">'
+          + (goal ? esc(goal) : '＋ 目標') + '</button>'
+        : '')
+    + '</th>';
+}
+
 function renderWeekSheet(){
   const days = weekDays(viewWeek);
   const from = days[0], to = days[6];
   const rows = sheetRows(from, to, [viewWeek]);
-  const thisWeek = weekKeyOf(TODAY());
 
-  let h = navHTML(md(from)+' 〜 '+md(to), viewWeek === thisWeek, '今週');
+  let h = navHTML(md(from)+' 〜 '+md(to), viewWeek === weekKeyOf(TODAY()), '今週');
 
   if(!rows.length){
-    h += '<div class="list plain"><div class="empty"><b>案件がまだない</b>'
-       + '案件タブで案件を作ると、ここに行として並ぶ</div></div>';
-  } else {
-    h += '<div class="sheetwrap"><table class="sheet"><thead><tr>'
-      + '<th class="rowh">案件</th>'
-      + '<th style="min-width:160px">今週やること</th>'
-      + days.map(ds => '<th'+(ds===TODAY()?' class="today"':'')+'>'+wdOf(ds)+' '+md(ds)+'</th>').join('')
-      + '<th style="min-width:160px">メモ</th>'
-      + '</tr></thead><tbody>';
-
-    for(const r of rows){
-      const l = D.logs.find(x => x.id === logId(viewWeek, r.id));
-      const n = doneBetween(from, to, r.id).length;
-      h += '<tr>'
-        + '<th class="rowh"><span class="pdot" style="background:'+r.color+'"></span>'+esc(r.name)
-        +   '<span class="cnt">完了 '+n+'</span></th>'
-        + textCellHTML(r.id, 'plan', l ? l.plan : '')
-        + days.map(ds => dayCellHTML(r.id, ds)).join('')
-        + textCellHTML(r.id, 'note', l ? l.note : '')
-        + '</tr>';
-    }
-    h += '</tbody></table></div>';
+    return h + '<div class="list plain"><div class="empty"><b>案件がまだない</b>'
+      + '案件タブで案件を作ると、ここに行として並ぶ</div></div>';
   }
 
-  const rv = getNote('week', viewWeek);
-  h += '<div class="sheetnote"><h3>今週のふりかえり</h3>'
-    + '<textarea data-note="week:'+viewWeek+'" '
-    + 'placeholder="うまくいったこと／詰まったこと／来週に持ち越すこと">'
-    + esc(rv ? rv.text : '') + '</textarea>'
-    + '<div class="acts"><button class="primary" data-sn="next">来週の「やること」を書く →</button></div>'
-    + '</div>';
-  return h;
+  h += '<div class="sheetwrap"><table class="sheet"><thead><tr>'
+    + '<th class="rowh">案件</th>'
+    + days.map(ds => '<th'+(ds===TODAY()?' class="today"':'')+'>'+wdOf(ds)+' '+md(ds)+'</th>').join('')
+    + '</tr></thead><tbody>';
+
+  for(const r of rows){
+    h += '<tr>' + rowHeadHTML(r)
+      + days.map(ds => dayCellHTML(r.id, ds)).join('')
+      + '</tr>';
+  }
+  return h + '</tbody></table></div>';
 }
 
 function renderMonthSheet(){
@@ -1261,18 +1256,18 @@ function renderMonthSheet(){
       + '<th>合計</th></tr></thead><tbody>';
     for(const r of rows){
       const total = doneBetween(first, last, r.id).length;
-      h += '<tr><th class="rowh"><span class="pdot" style="background:'+r.color+'"></span>'
-        + esc(r.name) + '</th>'
+      h += '<tr>' + rowHeadHTML(r)
         + weeks.map(w => {
             const d = weekDays(w);
             const n = doneBetween(d[0], d[6], r.id).length;
-            const l = D.logs.find(x => x.id === logId(w, r.id));
+            const man = manualIn([w], r.id, d[0], d[6]).length;
             return '<td class="cell" data-sn="goto:'+w+'">'
-              + (n ? '<div class="ent auto"><b>✓</b>'+n+'件</div>' : '<span class="cellempty">－</span>')
-              + (l && l.plan ? '<div class="ent man" style="opacity:.75">'+esc(l.plan.split('\n')[0])+'</div>' : '')
+              + (n ? '<div class="ent auto"><b>✓</b>'+n+'</div>' : '')
+              + (man ? '<div class="ent man"><b>・</b>'+man+'</div>' : '')
+              + (n || man ? '' : '<span class="cellempty">－</span>')
               + '</td>';
           }).join('')
-        + '<td class="mono" style="font-weight:700">'+total+'</td></tr>';
+        + '<td class="mono" style="font-weight:700">'+(total || '－')+'</td></tr>';
     }
     h += '</tbody></table></div>';
   }
@@ -1295,39 +1290,29 @@ function renderMonthSheet(){
           + md(x.d)+'</span>'+esc(x.t)+'</div>').join('')
       + '</div>';
   }
-  h += '<div class="sheetnote"><h3>この月にやったこと</h3>'
+  return h + '<div class="sheetnote"><h3>この月にやったこと</h3>'
     + (body || '<div class="mnone">まだ記録がない</div>') + '</div>';
-
-  const mn = getNote('month', viewMonth);
-  h += '<div class="sheetnote"><h3>'+m+'月のまとめ</h3>'
-    + '<textarea data-note="month:'+viewMonth+'" '
-    + 'placeholder="この月に前に進んだこと／効かなかったこと／来月変えること">'
-    + esc(mn ? mn.text : '') + '</textarea></div>';
-  return h;
 }
 
-/* セルの編集 */
-function editTextCell(td){
-  if(td.querySelector('textarea')) return;
-  const field = td.dataset.cell;
-  const pid = td.dataset.pid || null;
-  const l = getLog(viewWeek, pid, true);
-  const cur = l[field] || '';
-  td.innerHTML = '<textarea class="cellbox"></textarea>';
-  const ta = td.querySelector('textarea');
-  ta.value = cur; ta.focus();
-  ta.setSelectionRange(cur.length, cur.length);
+/* 案件の目標をその場で書く */
+function editGoal(btn){
+  const p = projById(btn.dataset.pid);
+  if(!p || btn.tagName === 'TEXTAREA') return;
+  const ta = document.createElement('textarea');
+  ta.className = 'cellbox';
+  ta.value = p.goal || '';
+  btn.replaceWith(ta);
+  ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
   let closed = false;
   const save = () => {
     if(closed) return; closed = true;
-    l[field] = ta.value.trim();
-    l.updatedAt = nowISO();
+    p.goal = ta.value.trim(); p.updatedAt = nowISO();
     saveData(); render();
   };
   ta.addEventListener('blur', save);
   ta.addEventListener('keydown', e => {
     if(e.key === 'Escape'){ e.preventDefault(); closed = true; render(); }
-    else if(e.key === 'Enter' && (e.metaKey || e.ctrlKey)){ e.preventDefault(); ta.blur(); }
+    else if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); ta.blur(); }
   });
 }
 
@@ -1484,12 +1469,13 @@ function renderAll(){
 
 function render(){
   renderChips();
+  document.getElementById('app').classList.toggle('wide', tab === 'sheet');
   document.getElementById('main').innerHTML =
     tab === 'today' ? renderToday() :
     tab === 'proj'  ? renderProjects() :
     tab === 'sheet' ? renderSheet() : renderAll();
   // 今週動いた日数
-  const ws = weekStart();
+  const ws = weekKeyOf(TODAY());
   const n = Object.keys(S.activeDays).filter(d => dayDiff(ws, d) >= 0 && dayDiff(ws, d) <= 6).length;
   document.getElementById('week').textContent = '今週 ' + n + '日';
   // 同期ボタンは同期ONのときだけ出す（OFFのときは設定の⚙だけ）
@@ -1588,6 +1574,11 @@ function openSettings(){
     + '<div class="fld"><label>今日に積む上限</label>'
     + '<input id="sLimit" type="number" min="1" max="7" value="'+S.todayLimit+'">'
     + '<div class="note">全部消える日を作るための上限。3つ推奨。</div></div>'
+    + '<div class="fld"><label>週報の週はじまり</label>'
+    + '<select id="sWkStart">'
+    + [0,1,2,3,4,5,6].map(i => '<option value="'+i+'"'+(weekStartDow()===i?' selected':'')+'>'
+        + WD_JA[i]+'曜</option>').join('')
+    + '</select><div class="note">週報タブの列の並びが変わる。記録は日付で持っているので、変えても消えない。</div></div>'
     + '<div class="fld"><label>薄くなるまでの日数</label>'
     + '<input id="sRot" type="number" min="7" max="90" value="'+S.rotDays+'">'
     + '<div class="note">この日数さわられていないタスクは薄くなり、「かたづけ」に出る。</div></div>'
@@ -1629,7 +1620,7 @@ function openSettings(){
     else if(act === 'import') importJSON();
   };
   const commit = () => { readFields(); render(); };
-  ['sCrit','sLimit','sRot','sTok','sName','sN1','sN2'].forEach(id => {
+  ['sCrit','sLimit','sRot','sTok','sName','sN1','sN2','sWkStart'].forEach(id => {
     const el = document.getElementById(id);
     el.addEventListener('change', commit);
   });
@@ -1641,6 +1632,8 @@ function openSettings(){
     S.starCriteria = document.getElementById('sCrit').value.trim() || S.starCriteria;
     S.todayLimit = Math.min(7, Math.max(1, +document.getElementById('sLimit').value || 3));
     S.rotDays = Math.min(90, Math.max(7, +document.getElementById('sRot').value || 21));
+    const ws = +document.getElementById('sWkStart').value;
+    if(ws !== S.weekStart){ S.weekStart = ws; viewWeek = null; }   // 週の区切りを引き直す
     const hadToken = S.token;
     S.token = document.getElementById('sTok').value.trim();
     S.name = document.getElementById('sName').value.trim();
@@ -1891,24 +1884,6 @@ function bind(){
   });
 
   // 案件カードの見出しはキーボードでも開ける
-  // ふりかえり／まとめの記入（打つたびに少し遅れて保存する）
-  const commitNote = ta => {
-    const [kind, key] = ta.dataset.note.split(':');
-    const n = getNote(kind, key, true);
-    if(n.text === ta.value) return;
-    n.text = ta.value; n.updatedAt = nowISO();
-    saveData();                       // ここで render() はしない（カーソルが飛ぶため）
-  };
-  document.getElementById('main').addEventListener('input', e => {
-    const ta = e.target.closest('[data-note]'); if(!ta) return;
-    clearTimeout(noteTimer);
-    noteTimer = setTimeout(() => commitNote(ta), 600);
-  });
-  document.getElementById('main').addEventListener('blur', e => {
-    const ta = e.target.closest('[data-note]'); if(!ta) return;
-    clearTimeout(noteTimer); commitNote(ta);
-  }, true);
-
   document.getElementById('main').addEventListener('keydown', e => {
     if(e.target.id === 'inl'){
       if(e.key === 'Enter'){ e.preventDefault(); commitInline(); }
@@ -1930,7 +1905,7 @@ function bind(){
     const cell = e.target.closest('[data-cell]');
     if(cell){
       if(cell.dataset.cell === 'day') openDayModal(cell.dataset.pid || null, cell.dataset.d);
-      else editTextCell(cell);
+      else editGoal(cell);
       return;
     }
 
