@@ -161,6 +161,12 @@ main{padding:0 16px 80px;}
 .due{color:var(--ink3);}
 .due.now{color:var(--accent);font-weight:600;}
 .who{border:1px solid var(--rule);border-radius:999px;padding:0 6px;}
+.todaybtn{
+  flex:none;align-self:center;border:1px solid var(--rule);border-radius:999px;
+  padding:4px 11px;font-size:11.5px;color:var(--ink3);white-space:nowrap;line-height:1.4;
+}
+.todaybtn:hover{border-color:var(--accent);color:var(--accent);}
+.todaybtn.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:700;}
 .kill{color:var(--ink3);font-size:13px;padding:2px 6px;flex:none;opacity:0;}
 .item:hover .kill{opacity:1;}
 @media (hover:none){.kill{opacity:.5;}}
@@ -808,14 +814,15 @@ function itemHTML(t, opt){
   if(S.showWho === 'all' && t.who !== S.me) subs.push('<span class="who">'+esc(whoName(t.who))+'</span>');
   return '<div class="item'+(t.status==='done'?' done':'')+(isRot(t)?' rot':'')+'" data-id="'+t.id+'">'
     + '<button class="box" data-act="done" aria-label="完了">✓</button>'
-    + '<button class="star'+(t.star?'':' off')+'" data-act="star" aria-label="重要">★</button>'
+    + '<button class="star'+(t.star?'':' off')+'" data-act="star" aria-label="重要"'
+    +   ' title="'+esc('★ 重要 — ' + S.starCriteria)+'">★</button>'
     + '<div class="body"><div class="t" data-act="edit" role="button" tabindex="0">'+esc(t.title)+'</div>'
     + (subs.length ? '<div class="sub">'+subs.join('')+'</div>' : '')
     + '</div>'
     + (opt.off ? '<button class="kill" data-act="off" title="今日から外す">↓</button>' : '')
     + (opt.move ? (t.todayOn === TODAY()
-        ? '<button class="kill" data-act="off" title="今日から外す">↓</button>'
-        : '<button class="kill" data-act="on" title="今日に入れる">↑</button>') : '')
+        ? '<button class="todaybtn on" data-act="off" title="今日から外す">今日</button>'
+        : '<button class="todaybtn" data-act="on" title="今日に入れる">＋今日</button>') : '')
     + '<button class="kill" data-act="del" title="削除">×</button>'
     + '</div>';
 }
@@ -1499,7 +1506,9 @@ function renderAll(){
     h += '<h2 class="grp'+(g.now?' now':'')+'"'
        + (g.color ? ' style="color:'+g.color+'"' : '') + '>'
        + esc(g.label) + ' (' + g.items.length + ')</h2>'
-       + '<div class="list">' + g.items.map(t => itemHTML(t, {noProj:noProj})).join('') + '</div>';
+       + '<div class="list">'
+       + g.items.map(t => itemHTML(t, {noProj:noProj, move:true})).join('')
+       + '</div>';
   }
   return h;
 }

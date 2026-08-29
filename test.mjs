@@ -221,6 +221,21 @@ const count = h => h.match(/<span>(\d+) 件<\/span>/)[1];
 
   let h = A.renderAll();
   eq('ぜんぶ: 既定は締切でまとめる', /期限なし \(4\)/.test(h), true);
+
+  // 一覧から開かずに今日へ入れられる
+  eq('ぜんぶ: 全行に「今日に入れる」が付く', (h.match(/data-act="on"/g) || []).length, 4);
+  eq('ぜんぶ: ボタンは常に見えている（hover待ちではない）', h.includes('class="todaybtn"'), true);
+  const one = A.getD().tasks[0];
+  one.todayOn = A.TODAY();
+  h = A.renderAll();
+  eq('今日に入っている行は入った状態で出る', h.includes('todaybtn on'), true);
+  eq('その行は押すと外れる', (h.match(/data-act="on"/g) || []).length, 3);
+  one.todayOn = null;
+
+  // ★の基準がその場で分かる
+  eq('★に基準の説明が付く', A.renderAll().includes('★ 重要 — ' + A.S.starCriteria), true);
+
+  h = A.renderAll();
   eq('ぜんぶ: 案件のチップが出る', h.includes('data-f="proj:'+pid+'"'), true);
   eq('ぜんぶ: 未分類のチップが出る', h.includes('data-f="proj:'+A.NOPROJ+'"'), true);
 
