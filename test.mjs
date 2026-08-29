@@ -581,8 +581,11 @@ const count = h => h.match(/<span>(\d+) 件<\/span>/)[1];
   seed();
   const t = A.addTask('提案書を出す');
   const body = A.calEventBody(t, '2026-08-27');
-  eq('終日予定として書く', [body.start, body.end],
-     [{ date:'2026-08-27' }, { date:'2026-08-27' }]);
+  // 終日予定の end.date は翌日を指す決まり。同じ日にすると長さゼロで弾かれる
+  eq('終日予定は終了日に翌日を入れる', [body.start, body.end],
+     [{ date:'2026-08-27' }, { date:'2026-08-28' }]);
+  eq('月をまたぐ場合も翌日になる', A.calEventBody(t, '2026-08-31').end, { date:'2026-09-01' });
+  eq('年をまたぐ場合も翌日になる', A.calEventBody(t, '2026-12-31').end, { date:'2027-01-01' });
   eq('タスクのIDを目印に入れる', body.extendedProperties.private.liensTask, t.id);
   eq('未完なら題名はそのまま', body.summary, '提案書を出す');
   t.status = 'done';

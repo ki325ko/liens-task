@@ -857,7 +857,11 @@ function renderToday(){
 
   h += '<div class="acts"><button class="primary" data-go="build">今日をつくる</button>';
   if(list.length) h += '<button data-go="clear">今日を空にする</button>';
-  if(calOn()) h += '<button data-go="cal"'+(calBusy?' disabled':'')+'>📅 カレンダーと合わせる</button>';
+  if(calOn()){
+    h += '<button data-go="cal"'+(calBusy?' disabled':'')+'>📅 カレンダーと合わせる</button>'
+      + '<a href="https://calendar.google.com/calendar/r/day" target="_blank" rel="noopener"'
+      + ' style="color:var(--ink3);text-decoration:none">カレンダーを開く ↗</a>';
+  }
   h += '</div>';
   if(calMsg) h += '<div class="hint'+(/つながらな/.test(calMsg)?' warn':'')+'">'+esc(calMsg)+'</div>';
 
@@ -1989,11 +1993,17 @@ function todayOrder(list){
   return timed.concat(rest);
 }
 
+function nextDay(ds){
+  const d = parseYMD(ds);
+  return fmt(new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1));
+}
+
 // 予定に付けておく目印。これが付いているものだけをアプリが触る
+// 終日予定の end.date は「翌日」を指定する決まり（同じ日だと長さゼロで弾かれる）
 function calEventBody(t, ds){
   return {
     summary: (t.status === 'done' ? '✅ ' : '') + t.title,
-    start: { date: ds }, end: { date: ds },
+    start: { date: ds }, end: { date: nextDay(ds) },
     extendedProperties: { private: { liensTask: t.id } }
   };
 }
@@ -2004,9 +2014,19 @@ async function calSync(){
   if(calBusy) return;
   calBusy = true; calMsg = 'カレンダーと合わせている…'; render();
   const ds = TODAY();
+  let made = 0, fixed = 0, gone = 0, timed = 0;
   try {
     // 自分のぶんだけ自分のカレンダーに出す
     const mine = D.tasks.filter(t => t.todayOn === ds && t.who === S.me);
+
+    if(!mine.length){
+      const others = D.tasks.filter(t => t.todayOn === ds && t.who !== S.me).length;
+      calMsg = others
+        ? '今日のタスクは全部「'+whoName(otherWho())+'」の担当になっている。'
+          + '自分の担当ぶんだけカレンダーに出す（設定の「この端末を使うのは」を確認）'
+        : '「今日」が空なので書くものが無い。先にタスクを今日に入れる';
+      calBusy = false; render(); toast(calMsg); return;
+    }
 
     for(const t of mine){
       if(!t.calEventId){
@@ -2014,8 +2034,9 @@ async function calSync(){
         const ev = await gApi('/calendars/primary/events', {
           method:'POST', body: JSON.stringify(calEventBody(t, ds))
         });
-        t.calEventId = ev.id; touch(t);
+        t.calEventId = ev.id; touch(t); made++;
       } else {
+        fixed++;
         await gApi('/calendars/primary/events/' + encodeURIComponent(t.calEventId), {
           method:'PATCH',
           body: JSON.stringify({ summary: (t.status === 'done' ? '✅ ' : '') + t.title })
@@ -2041,21 +2062,32 @@ async function calSync(){
       if(!tid) continue;
       if(!keep.has(tid)){
         await gApi('/calendars/primary/events/' + encodeURIComponent(ev.id), { method:'DELETE' });
-        const gone = D.tasks.find(t => t.id === tid);
-        if(gone && gone.calEventId === ev.id){ gone.calEventId = null; gone.calStart = null; touch(gone); }
+        const off = D.tasks.find(t => t.id === tid);
+        if(off && off.calEventId === ev.id){ off.calEventId = null; off.calStart = null; touch(off); }
+        gone++;
         continue;
       }
       const t = D.tasks.find(x => x.id === tid);
       if(!t) continue;
       const start = ev.start && ev.start.dateTime ? ev.start.dateTime : null;
+      if(start) timed++;
       if((t.calStart || null) !== start){ t.calStart = start; touch(t); }
     }
 
     calFree = freeMinutes(items, DAY_FROM, DAY_TO);
     saveData();
-    calMsg = '合わせた（' + new Date().toLocaleTimeString('ja-JP') + '）';
+    const parts = [];
+    if(made)  parts.push('新しく' + made + '件');
+    if(fixed) parts.push(fixed + '件を更新');
+    if(gone)  parts.push(gone + '件を削除');
+    if(timed) parts.push(timed + '件は時間が決まっている');
+    calMsg = (list && list.summary ? '【' + list.summary + '】' : '')
+      + (parts.length ? parts.join('／') : '変更なし')
+      + '（' + new Date().toLocaleTimeString('ja-JP') + '）';
+    toast(made ? 'カレンダーに' + made + '件出した' : '合わせた');
   } catch(e){
     calMsg = 'つながらなかった: ' + e.message;
+    toast(calMsg);
   } finally {
     calBusy = false; render();
   }
