@@ -41,6 +41,7 @@ const A = new Function(stubs + body + `
            weekKeyOf, weekDays, shiftWeek, shiftMonth, doneOn, doneBetween,
            getLog, logId, sheetRows, renderWeekSheet, renderMonthSheet, sheetNav,
            parseYMD, fmt,
+           freeMinutes, todayOrder, lengthLabel, hhmm, calEventBody, calOn,
            setView:(w,m,mode)=>{ if(w)viewWeek=w; if(m)viewMonth=m; if(mode)sheetMode=mode; },
            view:()=>({week:viewWeek, month:viewMonth, mode:sheetMode}),
            inline:()=>inlineAdd, el:(id)=>document.getElementById(id),
@@ -531,6 +532,67 @@ const count = h => h.match(/<span>(\d+) 件<\/span>/)[1];
   eq('次の週へ進める', A.view().week, A.shiftWeek(wk, 1));
   A.sheetNav('now');
   eq('今週に戻れる', A.view().week, A.weekKeyOf(A.TODAY()));
+}
+
+/* ============ Googleカレンダー ============ */
+{
+  // 空き時間（8時〜22時＝840分の枠で数える）
+  const at = (h, m) => new Date(2026, 7, 27, h, m || 0).toISOString();
+  const ev = (h1, m1, h2, m2, extra) =>
+    Object.assign({ start:{ dateTime: at(h1, m1) }, end:{ dateTime: at(h2, m2) } }, extra || {});
+
+  eq('予定が無ければ全部空き', A.freeMinutes([], 8, 22), 840);
+  eq('1時間の予定で1時間減る', A.freeMinutes([ev(10,0,11,0)], 8, 22), 780);
+  eq('重なった予定は二重に数えない',
+     A.freeMinutes([ev(10,0,12,0), ev(11,0,13,0)], 8, 22), 840 - 180);
+  eq('離れた予定は足し合わせる',
+     A.freeMinutes([ev(9,0,10,0), ev(15,0,16,0)], 8, 22), 840 - 120);
+  eq('終日予定は埋まっている扱いにしない',
+     A.freeMinutes([{ start:{ date:'2026-08-27' }, end:{ date:'2026-08-27' } }], 8, 22), 840);
+  eq('「予定なし」表示のものは数えない',
+     A.freeMinutes([ev(10,0,12,0,{ transparency:'transparent' })], 8, 22), 840);
+  eq('時間帯の外にはみ出したぶんは切る', A.freeMinutes([ev(6,0,9,0)], 8, 22), 780);
+  eq('埋まりきっても負にならない', A.freeMinutes([ev(0,0,23,59)], 8, 22), 0);
+
+  eq('長さの表示', [A.lengthLabel(840), A.lengthLabel(90), A.lengthLabel(45), A.lengthLabel(0)],
+     ['14時間', '1時間30分', '45分', '0分']);
+  eq('時刻の表示', A.hhmm(at(9, 5)), '09:05');
+}
+
+{
+  // 時間が決まったものを先に、決まっていないものはスコア順に
+  const mk = (id, o) => Object.assign({ id, title:id, who:'me', projectId:null, due:null,
+    star:false, size:null, status:'active', todayOn:A.TODAY(), calStart:null,
+    createdAt:NOW(), updatedAt:NOW(), touchedAt:NOW(), doneAt:null }, o);
+  const t = (h) => new Date(2026, 7, 27, h).toISOString();
+
+  const out = A.todayOrder([
+    mk('うしろ'),
+    mk('14時', { calStart: t(14) }),
+    mk('★あり', { star:true }),
+    mk('9時',  { calStart: t(9) })
+  ]).map(x => x.id);
+  eq('時間の決まったものが先頭に時間順で並ぶ', out.slice(0,2), ['9時','14時']);
+  eq('残りはスコア順', out.slice(2), ['★あり','うしろ']);
+}
+
+{
+  // カレンダーに書く中身
+  seed();
+  const t = A.addTask('提案書を出す');
+  const body = A.calEventBody(t, '2026-08-27');
+  eq('終日予定として書く', [body.start, body.end],
+     [{ date:'2026-08-27' }, { date:'2026-08-27' }]);
+  eq('タスクのIDを目印に入れる', body.extendedProperties.private.liensTask, t.id);
+  eq('未完なら題名はそのまま', body.summary, '提案書を出す');
+  t.status = 'done';
+  eq('完了したら題名に印が付く', A.calEventBody(t, '2026-08-27').summary, '✅ 提案書を出す');
+
+  A.S.gcalId = '';
+  eq('クライアントIDが無ければ機能は出さない', A.calOn(), false);
+  A.S.gcalId = 'xxx.apps.googleusercontent.com';
+  eq('入っていれば有効', A.calOn(), true);
+  A.S.gcalId = '';
 }
 
 /* ============ メモ ============ */

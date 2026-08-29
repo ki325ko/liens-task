@@ -160,6 +160,10 @@ main{padding:0 16px 80px;}
 .tag{padding:1px 7px;border-radius:999px;font-size:11px;color:#fff;}
 .due{color:var(--ink3);}
 .due.now{color:var(--accent);font-weight:600;}
+.attime{
+  color:var(--ok);font-weight:700;border:1px solid var(--ok);
+  border-radius:4px;padding:0 5px;
+}
 .who{border:1px solid var(--rule);border-radius:999px;padding:0 6px;}
 .todaybtn{
   flex:none;align-self:center;border:1px solid var(--rule);border-radius:999px;
@@ -500,7 +504,7 @@ let S = {
   showWho:'all', showStarOnly:false, showProject:null, groupBy:'due', showDoneProj:false,
   memoOpen:null, weekStart:3,
   lastOpen:null, activeDays:{},
-  token:'', repo:'ki325ko/quest-data', path:'tasks.json', name:''
+  token:'', repo:'ki325ko/quest-data', path:'tasks.json', name:'', gcalId:''
 };
 let tab = 'today';
 let sha = null, syncing = false, pushTimer = null, pullTimer = null;
@@ -807,6 +811,7 @@ function itemHTML(t, opt){
   opt = opt || {};
   const dl = dueLabel(t);
   const subs = [];
+  if(t.calStart) subs.push('<span class="attime">'+hhmm(t.calStart)+'〜</span>');
   const pj = projById(t.projectId);
   if(pj && !opt.noProj) subs.push('<span class="tag" style="background:'+pj.color+'">'+esc(pj.name)+'</span>');
   if(dl) subs.push('<span class="due'+(dl.now?' now':'')+'">'+dl.txt+'</span>');
@@ -830,14 +835,16 @@ function itemHTML(t, opt){
 function renderToday(){
   const today = TODAY();
   const mine = D.tasks.filter(t => visible(t));
-  const list = mine.filter(t => t.status === 'active' && t.todayOn === today).sort(byScore);
+  const list = todayOrder(mine.filter(t => t.status === 'active' && t.todayOn === today));
   const done = mine.filter(t => t.status === 'done' && t.doneAt && t.doneAt.slice(0,10) === today)
                    .sort((a,b) => a.doneAt < b.doneAt ? 1 : -1);
 
   const d = new Date();
   const wd = '日月火水木金土'[d.getDay()];
   let h = '<div class="daybar"><span>'+(d.getMonth()+1)+'/'+d.getDate()+'('+wd+')</span>'
-        + '<span>'+list.length+' / '+S.todayLimit+'</span></div>';
+        + '<span>'
+        + (calFree !== null ? '<span style="color:var(--ok)">空き '+lengthLabel(calFree)+'</span>　' : '')
+        + list.length+' / '+S.todayLimit+'</span></div>';
 
   h += welcomeBackHTML();
 
@@ -850,7 +857,9 @@ function renderToday(){
 
   h += '<div class="acts"><button class="primary" data-go="build">今日をつくる</button>';
   if(list.length) h += '<button data-go="clear">今日を空にする</button>';
+  if(calOn()) h += '<button data-go="cal"'+(calBusy?' disabled':'')+'>📅 カレンダーと合わせる</button>';
   h += '</div>';
+  if(calMsg) h += '<div class="hint'+(/つながらな/.test(calMsg)?' warn':'')+'">'+esc(calMsg)+'</div>';
 
   if(list.length > S.todayLimit)
     h += '<div class="hint warn">'+list.length+'つ入っている。今日ほんとに全部入る？</div>';
@@ -1640,6 +1649,17 @@ function openSettings(){
     + '</div>'
     + '<div class="status'+(/失敗|できな|エラー/.test(syncMsg)?' err':'')+'" id="syncStatus">'+esc(syncMsg||'')+'</div>'
 
+    + '<div class="sect">Googleカレンダー</div>'
+    + '<div class="fld"><label>クライアントID</label>'
+    + '<input id="sCal" placeholder="〜.apps.googleusercontent.com" value="'+esc(S.gcalId)+'">'
+    + '<div class="note">Google Cloud で作る。承認済みのJavaScript生成元に '
+    + '<b>' + esc(location.origin) + '</b> を登録しておくこと。'
+    + '秘密の値ではないので、2人で同じものを使ってよい。</div></div>'
+    + '<div class="btnrow"><button class="btn" data-s="calauth">つながるか試す</button></div>'
+    + '<div class="status'+(/つながらな|失敗/.test(calMsg)?' err':'')+'" id="calStatus">'+esc(calMsg||'')+'</div>'
+    + '<div class="note" style="margin-top:10px">「今日」に入れたタスクを終日予定として書く。'
+    + 'カレンダー上でその予定を時間帯にドラッグすると、開始時刻がアプリ側にも入る。</div>'
+
     + '<div class="sect">バックアップ</div>'
     + '<div class="btnrow">'
     + '<button class="btn" data-s="export">書き出す</button>'
@@ -1662,11 +1682,19 @@ function openSettings(){
       try{ await navigator.clipboard.writeText(url); toast('コピーした'); }
       catch(err){ prompt('このリンクを相手に送る', url); }
     }
+    else if(act === 'calauth'){
+      readFields();
+      const st = document.getElementById('calStatus');
+      st.textContent = 'Googleにつないでいる…';
+      try { await gAuth(true); calMsg = 'つながった。「今日」タブの「カレンダーと合わせる」で書き出せる'; }
+      catch(err){ calMsg = 'つながらなかった: ' + err.message; }
+      openSettings();
+    }
     else if(act === 'export') exportJSON();
     else if(act === 'import') importJSON();
   };
   const commit = () => { readFields(); render(); };
-  ['sCrit','sLimit','sRot','sTok','sName','sN1','sN2','sWkStart'].forEach(id => {
+  ['sCrit','sLimit','sRot','sTok','sName','sN1','sN2','sWkStart','sCal'].forEach(id => {
     const el = document.getElementById(id);
     el.addEventListener('change', commit);
   });
@@ -1680,6 +1708,8 @@ function openSettings(){
     S.rotDays = Math.min(90, Math.max(7, +document.getElementById('sRot').value || 21));
     const ws = +document.getElementById('sWkStart').value;
     if(ws !== S.weekStart){ S.weekStart = ws; viewWeek = null; }   // 週の区切りを引き直す
+    const newCal = document.getElementById('sCal').value.trim();
+    if(newCal !== S.gcalId){ S.gcalId = newCal; gToken = null; gExp = 0; }
     const hadToken = S.token;
     S.token = document.getElementById('sTok').value.trim();
     S.name = document.getElementById('sName').value.trim();
@@ -1853,6 +1883,184 @@ async function push(retry){
   }
 }
 
+/* ============ Googleカレンダー ============ */
+/*
+ * 「今日」に入れたタスクを、1件ずつ終日予定として書く。終日予定はその日の一番上に並ぶ。
+ * そこから先はカレンダー上でドラッグして時間を決める ―― アプリは時間割を組まない。
+ * 時間が決まったら、その開始時刻だけ取り込んで「今日」の並びに反映する。
+ */
+const CAL_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
+const CAL_API = 'https://www.googleapis.com/calendar/v3';
+const DAY_FROM = 8, DAY_TO = 22;          // 空き時間を数える時間帯
+let gToken = null, gExp = 0, gLoading = null;
+let calMsg = '', calBusy = false, calFree = null;
+
+function calOn(){ return !!(S.gcalId && S.gcalId.trim()); }
+
+function loadGis(){
+  if(window.google && window.google.accounts && google.accounts.oauth2) return Promise.resolve();
+  if(gLoading) return gLoading;
+  gLoading = new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = 'https://accounts.google.com/gsi/client';
+    s.async = true; s.defer = true;
+    s.onload = res;
+    s.onerror = () => { gLoading = null; rej(new Error('Googleに接続できなかった')); };
+    document.head.appendChild(s);
+  });
+  return gLoading;
+}
+
+function gAuth(interactive){
+  if(!calOn()) return Promise.reject(new Error('クライアントIDが入っていない'));
+  if(gToken && Date.now() < gExp - 60000) return Promise.resolve(gToken);
+  return loadGis().then(() => new Promise((res, rej) => {
+    const client = google.accounts.oauth2.initTokenClient({
+      client_id: S.gcalId.trim(),
+      scope: CAL_SCOPE,
+      callback: r => {
+        if(r.error){ rej(new Error(r.error)); return; }
+        gToken = r.access_token;
+        gExp = Date.now() + ((r.expires_in || 3600) * 1000);
+        res(gToken);
+      },
+      error_callback: e => rej(new Error((e && e.type) || 'ログインが完了しなかった'))
+    });
+    // まずは黙って取り直す。だめなら画面を出す
+    client.requestAccessToken({ prompt: interactive ? '' : 'none' });
+  }));
+}
+
+async function gApi(path, opt){
+  let tok;
+  try { tok = await gAuth(false); }
+  catch(e){ tok = await gAuth(true); }
+  const init = Object.assign({}, opt);
+  init.headers = Object.assign(
+    { 'Authorization':'Bearer ' + tok, 'Content-Type':'application/json' },
+    (opt && opt.headers) || {});
+  const res = await fetch(CAL_API + path, init);
+  if(res.status === 204) return null;
+  const j = await res.json().catch(() => null);
+  if(!res.ok){
+    if(res.status === 401){ gToken = null; gExp = 0; }
+    throw new Error((j && j.error && j.error.message) || ('HTTP ' + res.status));
+  }
+  return j;
+}
+
+/* --- ここから下は通信しない。テストできるように切り出してある --- */
+
+// 予定から、その日の空き時間（分）を数える
+function freeMinutes(events, from, to){
+  const open = from * 60, close = to * 60;
+  const busy = [];
+  for(const ev of (events || [])){
+    if(!ev.start || !ev.start.dateTime) continue;      // 終日予定は埋まっていない扱い
+    if(ev.transparency === 'transparent') continue;    // 「予定なし」表示のものは除く
+    const s = new Date(ev.start.dateTime), e = new Date(ev.end.dateTime);
+    const a = Math.max(open, s.getHours()*60 + s.getMinutes());
+    const b = Math.min(close, e.getHours()*60 + e.getMinutes());
+    if(b > a) busy.push([a, b]);
+  }
+  busy.sort((x, y) => x[0] - y[0]);
+  let used = 0, cur = null;
+  for(const iv of busy){
+    if(!cur || iv[0] > cur[1]){ if(cur) used += cur[1] - cur[0]; cur = iv.slice(); }
+    else cur[1] = Math.max(cur[1], iv[1]);
+  }
+  if(cur) used += cur[1] - cur[0];
+  return Math.max(0, (close - open) - used);
+}
+
+function hhmm(iso){
+  const d = new Date(iso);
+  return pad(d.getHours()) + ':' + pad(d.getMinutes());
+}
+function lengthLabel(min){
+  const h = Math.floor(min / 60), m = min % 60;
+  return (h ? h + '時間' : '') + (m ? m + '分' : (h ? '' : '0分'));
+}
+
+// 時間が決まったものを先に、決まっていないものはスコア順に
+function todayOrder(list){
+  const timed = list.filter(t => t.calStart).sort((a,b) => a.calStart < b.calStart ? -1 : 1);
+  const rest = list.filter(t => !t.calStart).sort(byScore);
+  return timed.concat(rest);
+}
+
+// 予定に付けておく目印。これが付いているものだけをアプリが触る
+function calEventBody(t, ds){
+  return {
+    summary: (t.status === 'done' ? '✅ ' : '') + t.title,
+    start: { date: ds }, end: { date: ds },
+    extendedProperties: { private: { liensTask: t.id } }
+  };
+}
+
+/* --- 通信するところ --- */
+
+async function calSync(){
+  if(calBusy) return;
+  calBusy = true; calMsg = 'カレンダーと合わせている…'; render();
+  const ds = TODAY();
+  try {
+    // 自分のぶんだけ自分のカレンダーに出す
+    const mine = D.tasks.filter(t => t.todayOn === ds && t.who === S.me);
+
+    for(const t of mine){
+      if(!t.calEventId){
+        if(t.status === 'done') continue;             // 済んだものを今さら作らない
+        const ev = await gApi('/calendars/primary/events', {
+          method:'POST', body: JSON.stringify(calEventBody(t, ds))
+        });
+        t.calEventId = ev.id; touch(t);
+      } else {
+        await gApi('/calendars/primary/events/' + encodeURIComponent(t.calEventId), {
+          method:'PATCH',
+          body: JSON.stringify({ summary: (t.status === 'done' ? '✅ ' : '') + t.title })
+        });
+      }
+    }
+
+    // 今日の予定を読む
+    const day = parseYMD(ds);
+    const tMin = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, 0, 0);
+    const tMax = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1, 0, 0, 0);
+    const q = '?singleEvents=true&orderBy=startTime&maxResults=100'
+      + '&timeMin=' + encodeURIComponent(tMin.toISOString())
+      + '&timeMax=' + encodeURIComponent(tMax.toISOString());
+    const list = await gApi('/calendars/primary/events' + q);
+    const items = (list && list.items) || [];
+
+    // 時間が決まったものを取り込む／今日から外れたものの予定を消す
+    const keep = new Set(mine.map(t => t.id));
+    for(const ev of items){
+      const tid = ev.extendedProperties && ev.extendedProperties.private
+        && ev.extendedProperties.private.liensTask;
+      if(!tid) continue;
+      if(!keep.has(tid)){
+        await gApi('/calendars/primary/events/' + encodeURIComponent(ev.id), { method:'DELETE' });
+        const gone = D.tasks.find(t => t.id === tid);
+        if(gone && gone.calEventId === ev.id){ gone.calEventId = null; gone.calStart = null; touch(gone); }
+        continue;
+      }
+      const t = D.tasks.find(x => x.id === tid);
+      if(!t) continue;
+      const start = ev.start && ev.start.dateTime ? ev.start.dateTime : null;
+      if((t.calStart || null) !== start){ t.calStart = start; touch(t); }
+    }
+
+    calFree = freeMinutes(items, DAY_FROM, DAY_TO);
+    saveData();
+    calMsg = '合わせた（' + new Date().toLocaleTimeString('ja-JP') + '）';
+  } catch(e){
+    calMsg = 'つながらなかった: ' + e.message;
+  } finally {
+    calBusy = false; render();
+  }
+}
+
 function pickupSharedToken(){
   const m = location.hash.match(/[#&]t=([^&]+)/);
   if(!m) return;
@@ -1973,6 +2181,7 @@ function bind(){
     if(go){
       const a = go.dataset.go;
       if(a === 'build') buildToday();
+      else if(a === 'cal') calSync();
       else if(a === 'clear'){
         D.tasks.forEach(t => { if(t.todayOn === TODAY() && t.status === 'active'){ t.todayOn = null; touch(t); } });
         saveData(); render();
